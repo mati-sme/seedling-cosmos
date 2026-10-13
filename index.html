@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0a0720">
+<meta name="description" content="Seedling Cosmos - tend a single cosmic seed until it grows into a living galaxy. An idle garden game.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Seedling Cosmos">
+<title>Seedling Cosmos</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/svg+xml" href="icons/icon.svg">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<canvas id="stars" aria-hidden="true"></canvas>
+
+<div id="app">
+  <header id="top">
+    <div id="res" aria-live="off"></div>
+  </header>
+
+  <main id="main">
+    <!-- Garden -->
+    <section id="tab-garden" class="tab active">
+      <div class="zone-head">
+        <div id="zone-name" class="zone-name">Seed Pod</div>
+        <div id="zone-desc" class="zone-desc"></div>
+        <div class="bar zone-bar"><i id="zone-fill"></i><span id="zone-label"></span></div>
+      </div>
+      <div id="planet-wrap">
+        <canvas id="planet" width="340" height="340" aria-label="Tap the seed"></canvas>
+        <div id="pop-layer"></div>
+      </div>
+      <div class="tap-hint" id="tap-hint">Tap the seed!</div>
+      <div class="stat-row">
+        <div class="stat"><b id="st-tap">0</b><small>per tap</small></div>
+        <div class="stat"><b id="st-sps">0</b><small>Stardust / sec</small></div>
+        <div class="stat"><b id="st-auto">0</b><small>auto taps / sec</small></div>
+      </div>
+      <button id="rebloom-banner" class="btn big glow" hidden></button>
+    </section>
+
+    <!-- Helpers -->
+    <section id="tab-helpers" class="tab">
+      <h2>Helpers</h2>
+      <div id="buy-modes" class="seg" hidden>
+        <button data-mode="1" class="on">x1</button><button data-mode="10">x10</button><button data-mode="100">x100</button><button data-mode="max">Max</button>
+      </div>
+      <div id="auto-panel" class="card" hidden></div>
+      <div id="gen-list"></div>
+    </section>
+
+    <!-- Upgrades -->
+    <section id="tab-upgrades" class="tab">
+      <h2>Upgrades</h2>
+      <p class="muted" id="up-info"></p>
+      <div id="up-list"></div>
+    </section>
+
+    <!-- Prestige -->
+    <section id="tab-prestige" class="tab">
+      <h2>Rebloom</h2>
+      <div id="rebloom-card" class="card"></div>
+      <h3>Tree of Memory</h3>
+      <div id="mem-tree" class="tree"></div>
+      <div id="sn-section" hidden>
+        <h2>Supernova</h2>
+        <div id="sn-card" class="card"></div>
+        <h3>Star Core Constellation</h3>
+        <div id="core-tree" class="tree"></div>
+      </div>
+    </section>
+
+    <!-- Trophies -->
+    <section id="tab-trophies" class="tab">
+      <h2>Trophies</h2>
+      <p class="muted" id="ach-info"></p>
+      <div id="ach-list" class="ach-grid"></div>
+      <h3>Statistics</h3>
+      <div id="stats" class="card stats-card"></div>
+    </section>
+
+    <!-- Settings -->
+    <section id="tab-settings" class="tab">
+      <h2>Settings</h2>
+      <div class="card set-card">
+        <label class="row"><span>Particles &amp; effects</span><input type="checkbox" id="set-fx"></label>
+        <label class="row"><span>Scientific notation</span><input type="checkbox" id="set-sci"></label>
+        <div class="row"><span>Save now</span><button class="btn small" id="btn-save">Save</button></div>
+        <div class="row"><span>Export save (text)</span><button class="btn small" id="btn-export">Export</button></div>
+        <div class="row"><span>Import save</span><button class="btn small" id="btn-import">Import</button></div>
+        <div class="row"><span>Hard reset</span><button class="btn small danger" id="btn-reset">Reset</button></div>
+      </div>
+      <p class="muted center">Seedling Cosmos v1.0 &middot; autosaves every 10 seconds</p>
+    </section>
+  </main>
+
+  <nav id="nav">
+    <button data-tab="garden" class="on"><i>🌱</i><span>Garden</span></button>
+    <button data-tab="helpers" hidden><i>✨</i><span>Helpers</span><u></u></button>
+    <button data-tab="upgrades" hidden><i>⬆️</i><span>Upgrades</span><u></u></button>
+    <button data-tab="prestige" hidden><i>🌸</i><span>Bloom</span><u></u></button>
+    <button data-tab="trophies" hidden><i>🏆</i><span>Trophies</span></button>
+    <button data-tab="settings"><i>⚙️</i><span>More</span></button>
+  </nav>
+</div>
+
+<div id="toasts" aria-live="polite"></div>
+<div id="modal" hidden><div id="modal-box" role="dialog" aria-modal="true"></div></div>
+
+<script src="js/data.js"></script>
+<script src="js/core.js"></script>
+<script src="js/fx.js"></script>
+<script src="js/ui.js"></script>
+</body>
+</html>
