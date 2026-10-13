@@ -1,374 +1,352 @@
-/* Seedling Cosmos - pure game logic (no DOM). Usable in browser (window.SC_CORE) and Node. */
+/* Seedling Cosmos v2 - pure game logic (UMD, Node-safe): state, stats, run engine, upgrades, prestige, save format. */
 (function (root) {
   'use strict';
   const D = root.SC_DATA || require('./data.js');
-  const T = D.T;
-  const C = { D };
-  const RES = D.RES_ORDER;
-  const NONE = [];
+  const B = D.BAL;
+  const SAVE_VERSION = 2;
+  const CUR = { main: 'stardust', mem: 'seeds', core: 'cores' };
+  const FIELD = { main: 'nodes', mem: 'mem', core: 'core' };
+
+  const C = { SAVE_VERSION, CUR, FIELD };
 
   // ---------- number formatting ----------
-  const LET = 'abcdefghijklmnopqrstuvwxyz';
-  const SUF = ['', 'K', 'M', 'B', 'T'];
+  const SUF = ['', 'K', 'M', 'B', 'T', 'Qa', 'Qi', 'Sx', 'Sp', 'Oc', 'No', 'Dc'];
   C.fmt = function (n, sci) {
-    if (n === undefined || n === null || isNaN(n)) return '0';
-    if (n < 0) return '-' + C.fmt(-n, sci);
     if (!isFinite(n)) return '∞';
-    if (n < 1000) {
-      if (n === Math.floor(n)) return String(n);
-      return n < 10 ? n.toFixed(2) : n.toFixed(1);
-    }
-    let e = Math.floor(Math.log10(n));
-    if (sci) {
-      let mant = n / Math.pow(10, e);
-      if (mant >= 9.995) { mant = 1; e++; }
-      return mant.toFixed(2) + 'e' + e;
-    }
-    let g = Math.floor(e / 3);
-    let txt = (n / Math.pow(10, g * 3)).toFixed(2);
-    if (parseFloat(txt) >= 1000) { g++; txt = (n / Math.pow(10, g * 3)).toFixed(2); }
-    const suf = g < SUF.length ? SUF[g] : LET[Math.floor((g - 5) / 26) % 26] + LET[(g - 5) % 26];
-    return txt + suf;
+    if (n < 0) return '-' + C.fmt(-n, sci);
+    if (n < 1000) return n < 10 && n % 1 ? n.toFixed(1).replace(/\.0$/, '') : String(Math.floor(n));
+    if (sci) { const e = Math.floor(Math.log10(n)); return (n / Math.pow(10, e)).toFixed(2) + 'e' + e; }
+    const t = Math.min(SUF.length - 1, Math.floor(Math.log10(n) / 3));
+    const v = n / Math.pow(1000, t);
+    return (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2)) + SUF[t];
   };
-  C.fmtTime = function (sec) {
-    sec = Math.max(0, Math.floor(sec));
-    const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60), s = sec % 60;
-    if (d) return d + 'd ' + h + 'h';
-    if (h) return h + 'h ' + m + 'm';
-    if (m) return m + 'm ' + s + 's';
-    return s + 's';
+  C.fmtTime = function (s) {
+    s = Math.max(0, Math.round(s));
+    if (s < 90) return s + 's';
+    const m = Math.floor(s / 60); if (m < 90) return m + 'm';
+    const h = Math.floor(m / 60); if (h < 48) return h + 'h ' + (m % 60) + 'm';
+    return Math.floor(h / 24) + 'd ' + (h % 24) + 'h';
   };
 
   // ---------- state ----------
   C.newState = function () {
-    const now = Date.now();
     return {
-      v: D.VERSION, created: now, last: now,
-      res: { sd: 0, sap: 0, pol: 0, sl: 0 },
-      run: { sd: 0, sap: 0, pol: 0, sl: 0, time: 0, taps: 0 },
-      gens: {}, ups: {}, zone: 0,
-      mem: 0, memAll: 0, memUp: {},
-      cores: 0, coreUp: {},
-      life: { sd: 0, taps: 0, crits: 0, time: 0, reblooms: 0, supernovas: 0, bestSps: 0, bestZone: 0, offl: 0, exp: 0, memAll: 0, coreAll: 0, upsb: 0 },
-      ach: {}, ms: {},
-      auto: { gens: true, ups: true, re: false, sn: false, pct: 50 },
-      set: { sci: false, fx: true, buy: 1 }
+      v: SAVE_VERSION, stardust: 0, cycleEarned: 0, lifetime: 0, seeds: 0, seedsEra: 0, seedsTotal: 0, cores: 0,
+      nodes: {}, mem: {}, core: {}, zone: 0, runs: 0, reblooms: 0, novas: 0, bestRun: 0, bestCombo: 0, totalHits: 0,
+      pending: null, created: Date.now(), saved: 0, playSeconds: 0,
+      settings: { fx: true, shake: true, sci: false, haptics: true }, seen: {}
     };
   };
+  C.level = (S, kind, id) => (id === 'seed' ? 1 : S[FIELD[kind]][id] || 0);
 
-  function cm(s) { return s._m || C.recalc(s); }
-
-  C.recalc = function (s) {
-    const m = {
-      tap: 1, tapSps: 0, crit: 0, critMul: 5, autoTap: 0, all: 1, genAll: 1, gen: {}, res: { sap: 1, pol: 1, sl: 1 },
-      costMul: 1, autoGens: 0, autoRes: 0, offEff: T.OFF_EFF, offCap: T.OFF_CAP, memGain: 1, coreGain: 1,
-      startSD: 0, startMem: 0, startGens: 0, achMul: 1, autoUps: false, autoRe: false, autoSn: false
-    };
-    for (const id in s.ups) {
-      const u = D.UPG_BY_ID[id];
-      if (!u) continue;
-      const f = u.fx;
-      if (f.tap) m.tap *= f.tap;
-      if (f.tapSps) m.tapSps += f.tapSps;
-      if (f.crit) m.crit += f.crit;
-      if (f.critMul) m.critMul += f.critMul;
-      if (f.autoTap) m.autoTap += f.autoTap;
-      if (f.all) m.all *= f.all;
-      if (f.costMul) m.costMul *= f.costMul;
-      if (f.autoGens) m.autoGens = Math.max(m.autoGens, f.autoGens);
-      if (f.autoRes) m.autoRes = 1;
-      if (f.offEff) m.offEff += f.offEff;
-      if (f.offCap) m.offCap += f.offCap;
-      if (f.g) m.gen[f.g] = (m.gen[f.g] || 1) * f.x;
-      if (f.r) m.res[f.r] *= f.x;
-    }
-    D.MEM_TREE.forEach((n) => { const l = s.memUp[n.id]; if (l) n.fx(m, l); });
-    D.CORE_TREE.forEach((n) => { const l = s.coreUp[n.id]; if (l) n.fx(m, l); });
-    m.crit = Math.min(0.9, m.crit);
-    m.offEff = Math.min(1, m.offEff);
-    const achN = Object.keys(s.ach).length;
-    m.staticMul = m.all * (1 + achN * T.ACH_BONUS * m.achMul) * (1 + T.MEM_BONUS * Math.pow(s.memAll, T.MEM_EXP)) * (1 + T.CORE_BONUS * Math.pow(s.life.coreAll, T.CORE_EXP));
-    m.baseOut = { sd: 0, sap: 0, pol: 0, sl: 0 };
-    D.GENS.forEach((g) => {
-      const n = s.gens[g.id] || 0;
-      if (!n) return;
-      let out = g.out * n * (m.gen[g.id] || 1) * m.genAll;
-      if (g.makes !== 'sd') out *= m.res[g.makes];
-      m.baseOut[g.makes] += out;
+  // ---------- stats ----------
+  C.computeStats = function (S) {
+    const acc = {}, ab = {};
+    let zone = 0;
+    Object.keys(D.STATS).forEach((k) => { acc[k] = D.STATS[k].kind === 'mul' ? 1 : 0; });
+    ['main', 'mem', 'core'].forEach((kind) => {
+      const lv = S[FIELD[kind]];
+      D.MAPS[kind].nodes.forEach((n) => {
+        const l = lv[n.id] || 0; if (!l) return;
+        const f = n.fx;
+        if (f.s === 'ab') ab[f.k] = true;
+        else if (f.s === 'zone') zone = Math.max(zone, f.z);
+        else if (f.m !== undefined) acc[f.s] *= Math.pow(f.m, l);
+        else acc[f.s] += f.a * l;
+      });
     });
-    m.autoUnlocked = m.autoGens > 0 || m.autoRes > 0 || m.autoUps || m.autoRe;
-    s._m = m;
-    return m;
+    const st = acc;
+    st.ab = ab; st.maxZone = zone;
+    st.time = B.BASE_TIME + acc.time;
+    st.comboWin = B.COMBO_WIN + acc.comboWin;
+    st.comboStep = B.COMBO_STEP + acc.comboStep;
+    st.comboCap = B.COMBO_CAP + acc.comboCap;
+    st.missLoss = Math.max(0, B.MISS_LOSS + acc.missLoss);
+    st.critMul = B.CRIT_MUL + acc.critMul;
+    st.goldC = B.GOLD_CH + acc.goldC;
+    st.orbT = B.ORB_TIME + acc.orbT;
+    st.sporePen = Math.max(0, B.SPORE_PEN + acc.sporePen);
+    st.sporeShield = Math.min(0.9, acc.sporeShield);
+    st.crit = Math.min(0.75, acc.crit);
+    st.abCd = Math.max(0.15, acc.abCd);
+    st.head = acc.head;
+    return st;
   };
-
-  C.dyn = function (s) {
-    return Math.pow(1 + s.run.sap, T.SAP_EXP) * Math.pow(1 + s.run.pol, T.POL_EXP) * Math.pow(1 + s.run.sl, T.SL_EXP);
-  };
-  C.mulSD = function (s) { return cm(s).staticMul * C.dyn(s); };
-  C.rates = function (s) {
-    const m = cm(s);
-    return { sd: m.baseOut.sd * m.staticMul * C.dyn(s), sap: m.baseOut.sap, pol: m.baseOut.pol, sl: m.baseOut.sl };
-  };
-  C.tapValue = function (s) {
-    const m = cm(s);
-    return T.TAP_BASE * m.tap * C.mulSD(s) + m.tapSps * C.rates(s).sd;
-  };
-
-  function give(s, r, amt) {
-    if (!(amt > 0)) return;
-    s.res[r] += amt; s.run[r] += amt;
-    if (r === 'sd') s.life.sd += amt;
-  }
-  C.give = give;
-
-  C.tap = function (s, n) {
-    n = n || 1;
-    const m = cm(s);
-    const v = C.tapValue(s);
-    let amt, crit = false;
-    if (n === 1) {
-      if (m.crit > 0 && Math.random() < m.crit) { crit = true; amt = v * m.critMul; s.life.crits++; } else amt = v;
-    } else {
-      amt = n * v * (1 + m.crit * (m.critMul - 1));
-      s.life.crits += n * m.crit;
-    }
-    give(s, 'sd', amt);
-    s.life.taps += n; s.run.taps += n;
-    return { amt, crit };
-  };
-
-  // ---------- helpers (generators) ----------
-  C.genVisible = function (s, g) { return (s.gens[g.id] || 0) > 0 || g.zone <= s.life.bestZone; };
-  C.genCost = function (s, g, k) {
-    const n = s.gens[g.id] || 0, c0 = g.base * cm(s).costMul * Math.pow(g.growth, n);
-    return c0 * (Math.pow(g.growth, k) - 1) / (g.growth - 1);
-  };
-  // Max number of helpers purchasable with `budget` (defaults to the full stock of the cost resource).
-  C.genMax = function (s, g, budget) {
-    const n = s.gens[g.id] || 0, c0 = g.base * cm(s).costMul * Math.pow(g.growth, n);
-    if (budget === undefined) budget = s.res[g.costRes];
-    if (!(budget >= c0)) return 0;
-    return Math.max(0, Math.floor(Math.log(1 + budget * (g.growth - 1) / c0) / Math.log(g.growth) + 1e-9));
-  };
-  // k: a number or 'max'. Returns the number actually bought (0 if unaffordable).
-  C.buyGen = function (s, id, k, budget) {
-    const g = D.GEN_BY_ID[id];
-    if (!g || !C.genVisible(s, g)) return 0;
-    const kmax = C.genMax(s, g, budget);
-    if (k === 'max') k = kmax;
-    else if (kmax < k) return 0;
-    if (!(k >= 1)) return 0;
-    const cost = C.genCost(s, g, k);
-    if (!(s.res[g.costRes] >= cost) || !isFinite(cost)) return 0;
-    s.res[g.costRes] -= cost;
-    s.gens[id] = (s.gens[id] || 0) + k;
-    C.recalc(s);
-    return k;
-  };
-  C.totalGens = function (s) { let n = 0; for (const id in s.gens) n += s.gens[id]; return n; };
+  C.stats = function (S) { return S._st || (S._st = C.computeStats(S)); };
+  C.dirty = function (S) { S._st = null; };
 
   // ---------- upgrades ----------
-  C.upVisible = function (s, u) {
-    if (s.ups[u.id]) return false;
-    if (u.req && (s.gens[u.req.gen] || 0) < u.req.n) return false;
-    return (s.run[u.res] || 0) >= u.cost * 0.3;
+  C.nodeCost = function (S, kind, n) {
+    const l = C.level(S, kind, n.id);
+    const base = D.baseCost(n, l);
+    return kind === 'main' ? Math.max(1, Math.ceil(base * C.stats(S).cost)) : base;
   };
-  C.visibleUps = function (s) { return D.UPGRADES.filter((u) => C.upVisible(s, u)); };
-  C.buyUp = function (s, id) {
-    const u = D.UPG_BY_ID[id];
-    if (!u || s.ups[id] || !(s.res[u.res] >= u.cost)) return false;
-    s.res[u.res] -= u.cost;
-    s.ups[id] = true; s.life.upsb++;
-    C.recalc(s);
+  // 'maxed' | 'owned' (purchased, can upgrade) | 'available' | 'locked'
+  C.nodeState = function (S, kind, n) {
+    const l = C.level(S, kind, n.id);
+    if (l >= n.max) return 'maxed';
+    if (l > 0) return 'owned';
+    return n.parents.some((p) => C.level(S, kind, p) > 0) ? 'available' : 'locked';
+  };
+  C.canBuy = function (S, kind, n) {
+    const st = C.nodeState(S, kind, n);
+    return (st === 'owned' || st === 'available') && S[CUR[kind]] >= C.nodeCost(S, kind, n);
+  };
+  C.buy = function (S, kind, id) {
+    const n = D.MAPS[kind].byId[id];
+    if (!n || n.root || !C.canBuy(S, kind, n)) return false;
+    S[CUR[kind]] -= C.nodeCost(S, kind, n);
+    S[FIELD[kind]][id] = C.level(S, kind, id) + 1;
+    C.dirty(S);
+    if (n.fx.s === 'zone' && S.zone < n.fx.z) S.zone = n.fx.z;
+    if (n.fx.s === 'head') C.applyHead(S);
     return true;
   };
+  // "head start" prestige perks pre-buy the first N main-map nodes (by purchase order)
+  C.applyHead = function (S) {
+    const n = Math.round(C.stats(S).head) * B.HEAD_STEP;
+    if (n > 0) D.MAIN.nodes.forEach((nd) => { if (nd.idx < n) S.nodes[nd.id] = nd.max; });
+    C.dirty(S);
+    if (!S.zonePicked || S.zone > C.stats(S).maxZone) S.zone = C.stats(S).maxZone;
+  };
+  C.counts = function (S, kind) {
+    let lv = 0, maxLv = 0, maxed = 0;
+    D.MAPS[kind].nodes.forEach((n) => { const l = C.level(S, kind, n.id); lv += l; maxLv += n.max; if (l >= n.max) maxed++; });
+    return { levels: lv, maxLevels: maxLv, maxed, total: D.MAPS[kind].nodes.length };
+  };
+  C.allMaxed = (S) => ['main', 'mem', 'core'].every((k) => { const c = C.counts(S, k); return c.maxed === c.total; });
 
   // ---------- prestige ----------
-  C.treeCost = function (n, l) { return Math.ceil(n.base * Math.pow(n.gr, l)); };
-  C.buyMem = function (s, id) {
-    const n = D.MEM_BY_ID[id], l = s.memUp[id] || 0;
-    if (!n || l >= n.max) return false;
-    const c = C.treeCost(n, l);
-    if (s.mem < c) return false;
-    s.mem -= c; s.memUp[id] = l + 1; C.recalc(s);
-    return true;
+  C.rebloomGain = function (S) {
+    if (S.cycleEarned < B.REB_REQ) return 0;
+    // scales with the order of magnitude reached this cycle, so Seeds stay bounded however strong the garden gets
+    const depth = 1 + Math.log10(S.cycleEarned / B.REB_REQ);
+    return Math.floor(B.REB_K * Math.pow(depth, B.REB_EXP) * C.stats(S).seedGain);
   };
-  C.buyCore = function (s, id) {
-    const n = D.CORE_BY_ID[id], l = s.coreUp[id] || 0;
-    if (!n || l >= n.max) return false;
-    const c = C.treeCost(n, l);
-    if (s.cores < c) return false;
-    s.cores -= c; s.coreUp[id] = l + 1; C.recalc(s);
-    return true;
+  C.rebloom = function (S) {
+    const g = C.rebloomGain(S); if (g < 1) return 0;
+    S.seeds += g; S.seedsEra += g; S.seedsTotal += g; S.reblooms++;
+    S.stardust = 0; S.cycleEarned = 0; S.nodes = {}; S.zone = 0; S.zonePicked = false;
+    C.dirty(S); C.applyHead(S);
+    return g;
   };
-  C.rebloomGain = function (s) {
-    if (s.run.sd < T.RE_REQ) return 0;
-    return Math.floor(T.RE_K * Math.pow(s.run.sd / T.RE_REQ, T.RE_EXP) * cm(s).memGain);
+  C.novaGain = function (S) {
+    if (S.seedsEra < B.NOVA_REQ) return 0;
+    return Math.floor(B.NOVA_K * Math.pow(S.seedsEra / B.NOVA_REQ, B.NOVA_EXP));
   };
-  C.snReq = function (s) { return T.SN_REQ * Math.pow(T.SN_SCALE, s.life.supernovas); };
-  C.supernovaGain = function (s) {
-    const req = C.snReq(s);
-    if (s.memAll < req) return 0;
-    return Math.floor(T.SN_K * Math.pow(s.memAll / req, T.SN_EXP) * cm(s).coreGain);
+  C.supernova = function (S) {
+    const g = C.novaGain(S); if (g < 1) return 0;
+    const keep = Math.min(1, C.stats(S).memKeep);
+    Object.keys(S.mem).forEach((id) => { const k = Math.floor(S.mem[id] * keep); if (k > 0) S.mem[id] = k; else delete S.mem[id]; });
+    S.cores += g; S.novas++;
+    S.seeds = 0; S.seedsEra = 0; S.stardust = 0; S.cycleEarned = 0; S.nodes = {}; S.zone = 0; S.zonePicked = false;
+    C.dirty(S); C.applyHead(S);
+    return g;
   };
-  function resetRun(s) {
-    const m = C.recalc(s);
-    s.res = { sd: m.startSD, sap: 0, pol: 0, sl: 0 };
-    s.run = { sd: 0, sap: 0, pol: 0, sl: 0, time: 0, taps: 0 };
-    s.gens = {}; s.ups = {}; s.zone = 0;
-    if (m.startGens) D.SD_GENS.slice(0, 4).forEach((g) => { s.gens[g.id] = m.startGens; });
-    C.recalc(s);
+  C.novaRevealed = (S) => S.novas > 0 || S.cores > 0 || S.seedsEra >= B.NOVA_REQ * 0.2;
+
+  // ---------- run engine (headless; the UI renders its state, the sim drives it with a bot) ----------
+  C.createRun = function (S, zoneIdx, rng, H, emit) {
+    const st = C.stats(S), z = D.ZONES[zoneIdx];
+    const run = {
+      st, zone: zoneIdx, zc: z, zmul: B.ZONE_MUL[zoneIdx], rng, H: H || 1.45, emit: !!emit, ev: [],
+      t: 0, dur: st.time, left: st.time, over: false, targets: [], nid: 1, spawnAcc: 0.6, autoAcc: 0,
+      combo: 0, comboT: 0, maxCombo: 0, bonusT: 0, earned: 0, hits: 0, misses: 0, sporeHits: 0, pops: 0, crits: 0,
+      fx: { slow: 0, golden: 0, magnet: 0 }, cd: {}, used: {}
+    };
+    Object.keys(st.ab).forEach((k) => { run.cd[k] = 0; });
+    return run;
+  };
+  const ev = (run, e) => { if (run.emit) run.ev.push(e); };
+  C.comboMult = (run) => Math.min(run.st.comboCap, 1 + run.combo * run.st.comboStep);
+
+  function spawn(run) {
+    const st = run.st, z = run.zc, rng = run.rng, H = run.H;
+    let kind = 'mote';
+    if (run.zone > 0 && rng() < z.spore * st.sporeC) kind = 'spore';
+    else {
+      const q = rng();
+      if (q < st.cometC) kind = 'comet';
+      else if (q < st.cometC + st.podC) kind = 'pod';
+      else if (q < st.cometC + st.podC + st.orbC) kind = 'orb';
+      else if (run.fx.golden > 0 || rng() < st.goldC) kind = 'gold';
+    }
+    const spd = z.speed * (0.05 + rng() * 0.09), a = rng() * 6.283;
+    const t = { id: run.nid++, kind, r: B.RADIUS, x: 0.12 + rng() * 0.76, y: 0.12 + rng() * (H - 0.24), vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, age: 0, life: B.LIFE * st.life * z.life, hp: 1 };
+    if (kind === 'comet') {
+      const dir = rng() < 0.5 ? 1 : -1;
+      t.x = dir > 0 ? -0.05 : 1.05; t.y = 0.15 + rng() * (H - 0.3); t.vx = dir * 0.42 * z.speed; t.vy = (rng() - 0.5) * 0.1;
+      t.life = 3.4; t.r = B.RADIUS * 1.05;
+    } else if (kind === 'pod') { t.r = B.RADIUS * 1.55; t.hp = 4; t.vx *= 0.5; t.vy *= 0.5; t.life *= 1.5; }
+    else if (kind === 'spore') { t.life = Math.max(t.life, 3.2); t.r = B.RADIUS * 0.95; }
+    else if (kind === 'orb') { t.r = B.RADIUS * 0.9; t.life *= 0.8; }
+    t.max = t.life; t.hp0 = t.hp;
+    run.targets.push(t);
+    ev(run, { type: 'spawn', t });
   }
-  C.rebloom = function (s) {
-    const g = C.rebloomGain(s);
-    if (g < 1) return null;
-    s.mem += g; s.memAll += g; s.life.memAll += g; s.life.reblooms++;
-    resetRun(s);
-    return { gain: g };
-  };
-  C.supernova = function (s) {
-    const g = C.supernovaGain(s);
-    if (g < 1) return null;
-    s.cores += g; s.life.coreAll += g; s.life.supernovas++;
-    s.memUp = {}; s.memAll = 0; s.mem = 0;
-    const m = C.recalc(s);
-    s.mem = m.startMem;
-    resetRun(s);
-    return { gain: g };
+
+  function collect(run, t, via) {
+    const st = run.st;
+    const mult = via === 'auto' ? 1 : C.comboMult(run);
+    let crit = false;
+    if (via === 'tap' && run.rng() < st.crit) { crit = true; run.crits++; }
+    let val = B.VAL[t.kind] * run.zmul * st.yield * mult * (crit ? st.critMul : 1);
+    let addT = 0;
+    if (t.kind === 'orb') { addT = Math.min(st.orbT, Math.max(0, run.dur * 0.3 - run.bonusT)); run.bonusT += addT; run.left += addT; }
+    if (via === 'nova') val *= st.novaMul;
+    if (via === 'auto') val *= 0.6;
+    run.earned += val; run.hits++; run.pops++;
+    if (via !== 'auto') {
+      run.combo += t.kind === 'pod' ? 3 : t.kind === 'gold' || t.kind === 'comet' ? 2 : 1;
+      run.comboT = st.comboWin;
+      if (run.combo > run.maxCombo) run.maxCombo = run.combo;
+    }
+    const i = run.targets.indexOf(t); if (i >= 0) run.targets.splice(i, 1);
+    ev(run, { type: 'hit', x: t.x, y: t.y, val, crit, kind: t.kind, combo: run.combo, via, mult, orbT: addT });
+  }
+
+  function sporeHit(run, t) {
+    const i = run.targets.indexOf(t); if (i >= 0) run.targets.splice(i, 1);
+    if (run.rng() < run.st.sporeShield) { ev(run, { type: 'shield', x: t.x, y: t.y }); return; }
+    run.sporeHits++; run.combo = 0;
+    run.left = Math.max(0.01, run.left - run.st.sporePen);
+    ev(run, { type: 'spore', x: t.x, y: t.y, pen: run.st.sporePen });
+  }
+
+  // Tap at field coordinates (x in 0..1, y in 0..H). Returns the target touched or null.
+  C.tapRun = function (run, x, y) {
+    if (run.over) return null;
+    const st = run.st, slop = 0.025, rm = st.hitR * (run.fx.magnet > 0 ? 1.3 : 1);
+    let best = null, bd = 1e9;
+    for (let i = 0; i < run.targets.length; i++) {
+      const t = run.targets[i], d = Math.hypot(t.x - x, t.y - y) - t.r * rm;
+      if (d < slop && d < bd) { bd = d; best = t; }
+    }
+    if (!best) {
+      run.misses++;
+      const lost = Math.floor(run.combo * st.missLoss);
+      if (lost > 0) run.combo -= lost;
+      ev(run, { type: 'miss', x, y, lost });
+      return null;
+    }
+    if (best.kind === 'spore') { sporeHit(run, best); return best; }
+    if (best.hp > 1) {
+      best.hp--; run.combo += 1; run.comboT = st.comboWin; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
+      ev(run, { type: 'podhit', x: best.x, y: best.y, hp: best.hp, combo: run.combo });
+      return best;
+    }
+    collect(run, best, 'tap');
+    return best;
   };
 
-  // ---------- progression checks ----------
-  C.stats = function (s) {
-    const m = cm(s);
+  C.abilityReady = (run, k) => !!run.st.ab[k] && run.cd[k] <= 0 && !run.over && !(k === 'chrono' && run.used.chrono);
+  C.useAbility = function (run, k) {
+    if (!C.abilityReady(run, k)) return false;
+    const st = run.st, A = D.ABILITIES[k];
+    run.cd[k] = Math.max(3, A.cd * st.abCd);
+    if (k === 'nova') {
+      run.targets.slice().forEach((t) => {
+        if (t.kind === 'spore') run.targets.splice(run.targets.indexOf(t), 1); else collect(run, t, 'nova');
+      });
+    } else if (k === 'chrono') { run.used.chrono = true; run.left += A.time * st.abPow; }
+    else run.fx[k] = A.dur * st.abPow;
+    ev(run, { type: 'ability', k });
+    return true;
+  };
+
+  C.stepRun = function (run, dt) {
+    if (run.over) return;
+    const st = run.st, rng = run.rng, H = run.H, fx = run.fx;
+    run.t += dt; run.left -= dt;
+    if (run.left <= 0) { run.left = 0; run.over = true; ev(run, { type: 'end' }); return; }
+    for (const k in run.cd) if (run.cd[k] > 0 && k !== 'chrono') run.cd[k] = Math.max(0, run.cd[k] - dt);
+    for (const k in fx) if (fx[k] > 0) fx[k] = Math.max(0, fx[k] - dt);
+    run.spawnAcc += B.SPAWN * st.spawn * (fx.golden > 0 ? 1.35 : 1) * dt;
+    while (run.spawnAcc >= 1) { run.spawnAcc -= 1; if (run.targets.length < B.MAX_TARGETS) spawn(run); }
+    const sp = fx.slow > 0 ? 0.35 : 1;
+    for (let i = run.targets.length - 1; i >= 0; i--) {
+      const t = run.targets[i];
+      t.age += dt; t.life -= dt * (fx.slow > 0 ? 0.6 : 1);
+      if (fx.magnet > 0 && t.kind !== 'spore' && t.kind !== 'comet') {
+        const dx = 0.5 - t.x, dy = H / 2 - t.y, d = Math.hypot(dx, dy) || 1;
+        t.x += dx / d * 0.28 * dt; t.y += dy / d * 0.28 * dt;
+        if (d < 0.13) { collect(run, t, 'auto'); continue; }
+      }
+      t.x += t.vx * dt * sp; t.y += t.vy * dt * sp;
+      if (t.kind !== 'comet') {
+        if (t.x < t.r || t.x > 1 - t.r) { t.vx = -t.vx; t.x = Math.min(1 - t.r, Math.max(t.r, t.x)); }
+        if (t.y < t.r || t.y > H - t.r) { t.vy = -t.vy; t.y = Math.min(H - t.r, Math.max(t.r, t.y)); }
+      }
+      if (t.life <= 0 || t.x < -0.1 || t.x > 1.1) {
+        run.targets.splice(i, 1);
+        ev(run, { type: 'expire', x: t.x, y: t.y, kind: t.kind });
+      }
+    }
+    if (st.auto > 0) {
+      run.autoAcc += st.auto * dt;
+      while (run.autoAcc >= 1) {
+        run.autoAcc -= 1;
+        const pool = run.targets.filter((t) => t.kind !== 'spore' && t.hp <= 1);
+        if (pool.length) collect(run, pool[Math.floor(rng() * pool.length)], 'auto');
+      }
+    }
+    if (run.combo > 0) {
+      run.comboT -= dt;
+      if (run.comboT <= 0) { if (run.combo >= 10) ev(run, { type: 'combolost', combo: run.combo }); run.combo = 0; }
+    }
+  };
+
+  // Totals at the end of a run. Stardust stays "pending" until the player collects it on the summary screen.
+  C.finishRun = function (run) {
+    const st = run.st;
+    const flawless = run.sporeHits === 0 ? st.flawless : 0;
     return {
-      taps: s.life.taps, sd: s.life.sd, gens: C.totalGens(s), upsb: s.life.upsb, zone: s.life.bestZone,
-      reb: s.life.reblooms, sup: s.life.supernovas, mem: s.life.memAll, cores: s.life.coreAll, time: s.life.time,
-      crits: s.life.crits, sps: s.life.bestSps, offl: s.life.offl, exp: s.life.exp, autoUnlocked: m.autoUnlocked
+      zone: run.zone, raw: run.earned, collectMul: st.collect, flawless, total: run.earned * st.collect * (1 + flawless),
+      hits: run.hits, misses: run.misses, maxCombo: run.maxCombo, sporeHits: run.sporeHits, crits: run.crits,
+      duration: run.dur, accuracy: run.hits / Math.max(1, run.hits + run.misses)
     };
   };
-  C.zoneProgress = function (s) {
-    const z = D.ZONES, i = s.zone;
-    if (i >= z.length - 1) return 1;
-    const lo = z[i].thr > 0 ? Math.log10(z[i].thr) : 0, hi = Math.log10(z[i + 1].thr);
-    return Math.max(0, Math.min(1, (Math.log10(Math.max(1, s.run.sd)) - lo) / (hi - lo)));
-  };
-  C.check = function (s) {
-    const ev = [];
-    let z = s.zone;
-    while (z + 1 < D.ZONES.length && s.run.sd >= D.ZONES[z + 1].thr) z++;
-    s.zone = z;
-    while (s.life.bestZone < z) { s.life.bestZone++; ev.push({ type: 'zone', z: s.life.bestZone }); }
-    const sps = C.rates(s).sd;
-    if (sps > s.life.bestSps) s.life.bestSps = sps;
-    const st = C.stats(s);
-    D.MILESTONES.forEach((ms) => { if (!s.ms[ms.id] && ms.test(st)) { s.ms[ms.id] = 1; ev.push({ type: 'ms', id: ms.id }); } });
-    let newAch = false;
-    D.ACH.forEach((a) => { if (!s.ach[a.id] && st[a.stat] >= a.min) { s.ach[a.id] = 1; newAch = true; ev.push({ type: 'ach', id: a.id }); } });
-    if (newAch) C.recalc(s);
-    return ev;
-  };
-
-  // ---------- automation ----------
-  function autoBuy(s, ev) {
-    const m = cm(s);
-    if (s.auto.gens) {
-      D.GENS.forEach((g) => {
-        const idx = D.SD_GENS.indexOf(g);
-        if (g.makes === 'sd' ? idx >= m.autoGens : !m.autoRes) return;
-        if (!C.genVisible(s, g)) return;
-        const budget = s.res[g.costRes] * 0.4;
-        const k = C.genMax(s, g, budget);
-        if (k >= 1) C.buyGen(s, g.id, k, budget);
-      });
-    }
-    if (s.auto.ups && m.autoUps) {
-      const list = C.visibleUps(s).filter((u) => s.res[u.res] * 0.5 >= u.cost).sort((a, b) => a.cost - b.cost);
-      for (let i = 0; i < list.length && i < 6; i++) C.buyUp(s, list[i].id);
-    }
-    if (s.auto.re && m.autoRe) {
-      const g = C.rebloomGain(s);
-      if (g >= 1 && g >= Math.max(1, s.memAll * s.auto.pct / 100)) ev.push({ type: 'rebloom', gain: C.rebloom(s).gain, auto: true });
-    }
-    if (s.auto.sn && cm(s).autoSn) {
-      const g = C.supernovaGain(s);
-      if (g >= 1 && g >= Math.max(1, s.life.coreAll * s.auto.pct / 100)) ev.push({ type: 'supernova', gain: C.supernova(s).gain, auto: true });
-    }
-  }
-
-  function produce(s, dt) {
-    const r = C.rates(s);
-    for (let i = 0; i < RES.length; i++) give(s, RES[i], r[RES[i]] * dt);
-  }
-
-  // Advance the simulation by dt seconds. Returns an array of events.
-  C.tick = function (s, dt) {
-    const m = cm(s);
-    let ev = NONE;
-    produce(s, dt);
-    if (m.autoTap > 0) {
-      s._at = (s._at || 0) + m.autoTap * dt;
-      const n = Math.floor(s._at);
-      if (n > 0) { s._at -= n; C.tap(s, n); }
-    }
-    s.life.time += dt; s.run.time += dt;
-    s._ac = (s._ac || 0) + dt;
-    if (s._ac >= 1) { s._ac = 0; ev = []; autoBuy(s, ev); }
-    s._ck = (s._ck || 0) + dt;
-    if (s._ck >= 0.5) { s._ck = 0; ev = ev === NONE ? C.check(s) : ev.concat(C.check(s)); }
-    return ev;
-  };
-
-  // Offline progress: capped duration, reduced efficiency, no compounding.
-  C.offline = function (s, secs) {
-    const m = cm(s);
-    const used = Math.min(secs, m.offCap);
-    const before = { sd: s.run.sd, sap: s.run.sap, pol: s.run.pol, sl: s.run.sl };
-    produce(s, used * m.offEff);
-    s.life.time += secs; s.run.time += secs; s.life.offl++;
-    const events = C.check(s);
-    const gained = {};
-    RES.forEach((r) => { gained[r] = s.run[r] - before[r]; });
-    return { secs, used, eff: m.offEff, capped: secs > m.offCap, gained, events };
+  C.endRun = function (S, run) { S.pending = C.finishRun(run); return S.pending; };
+  C.collectPending = function (S) {
+    const p = S.pending; if (!p) return null;
+    S.stardust += p.total; S.cycleEarned += p.total; S.lifetime += p.total; S.runs++;
+    S.totalHits += p.hits; S.playSeconds += p.duration;
+    if (p.total > S.bestRun) S.bestRun = p.total;
+    if (p.maxCombo > S.bestCombo) S.bestCombo = p.maxCombo;
+    S.pending = null;
+    return p;
   };
 
   // ---------- save / load ----------
-  C.serialize = function (s) { return JSON.stringify(s, (k, v) => (k[0] === '_' ? undefined : v)); };
-  const MAPS = ['gens', 'ups', 'memUp', 'coreUp', 'ach', 'ms'];
-  function merge(dst, src) {
-    for (const k in dst) {
-      if (src[k] === undefined || src[k] === null || MAPS.indexOf(k) >= 0) continue;
-      const d = dst[k];
-      if (d && typeof d === 'object') { if (typeof src[k] === 'object') merge(d, src[k]); }
-      else if (typeof d === typeof src[k]) dst[k] = src[k];
-    }
-  }
-  C.deserialize = function (str) {
-    const obj = JSON.parse(str);
-    if (!obj || typeof obj !== 'object' || !obj.res) throw new Error('Not a Seedling Cosmos save');
-    const s = C.newState();
-    merge(s, obj);
-    MAPS.forEach((k) => { if (obj[k] && typeof obj[k] === 'object') s[k] = obj[k]; });
-    ['res', 'run', 'life'].forEach((k) => { for (const r in s[k]) if (!isFinite(s[k][r])) s[k][r] = 0; });
-    ['mem', 'memAll', 'cores'].forEach((k) => { if (!isFinite(s[k])) s[k] = 0; });
-    s.last = Date.now();
-    C.recalc(s);
-    return s;
+  C.serialize = function (S) {
+    const o = Object.assign({}, S); delete o._st; o.saved = Date.now();
+    return JSON.stringify(o);
   };
-  function b64enc(str) {
-    if (typeof btoa === 'function') return btoa(unescape(encodeURIComponent(str)));
-    return Buffer.from(str, 'utf8').toString('base64');
-  }
-  function b64dec(b) {
-    if (typeof atob === 'function') return decodeURIComponent(escape(atob(b)));
-    return Buffer.from(b, 'base64').toString('utf8');
-  }
-  C.exportSave = function (s) { return 'SC1:' + b64enc(C.serialize(s)); };
-  C.importSave = function (txt) {
-    txt = String(txt).trim();
-    if (txt.indexOf('SC1:') !== 0) throw new Error('Unrecognised save format');
-    return C.deserialize(b64dec(txt.slice(4)));
+  C.exportString = function (S) {
+    const j = C.serialize(S);
+    const b = typeof btoa === 'function' ? btoa(unescape(encodeURIComponent(j))) : Buffer.from(j, 'utf8').toString('base64');
+    return 'SC2:' + b;
+  };
+  // Returns a validated v2 state or null (old/foreign/corrupt data). Never throws.
+  C.parse = function (text) {
+    try {
+      if (!text) return null;
+      let j = String(text).trim();
+      if (j.indexOf('SC2:') === 0) {
+        const b = j.slice(4);
+        j = typeof atob === 'function' ? decodeURIComponent(escape(atob(b))) : Buffer.from(b, 'base64').toString('utf8');
+      }
+      const o = JSON.parse(j);
+      if (!o || o.v !== SAVE_VERSION) return null;
+      const S = Object.assign(C.newState(), o);
+      S.settings = Object.assign(C.newState().settings, o.settings || {});
+      ['nodes', 'mem', 'core', 'seen'].forEach((k) => { if (!S[k] || typeof S[k] !== 'object') S[k] = {}; });
+      ['stardust', 'cycleEarned', 'lifetime', 'seeds', 'seedsEra', 'seedsTotal', 'cores'].forEach((k) => { if (!isFinite(S[k]) || S[k] < 0) S[k] = 0; });
+      C.dirty(S);
+      if (S.zone > C.stats(S).maxZone) S.zone = C.stats(S).maxZone;
+      return S;
+    } catch (e) { return null; }
   };
 
-  if (typeof module !== 'undefined' && module.exports) module.exports = C;
-  else root.SC_CORE = C;
+  if (typeof module !== 'undefined' && module.exports) module.exports = C; else root.SC_CORE = C;
 })(typeof self !== 'undefined' ? self : this);

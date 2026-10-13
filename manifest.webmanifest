@@ -1,7 +1,7 @@
 {
   "name": "Seedling Cosmos",
   "short_name": "Seedling",
-  "description": "Tend a single cosmic seed until it grows into a living galaxy. A cozy incremental garden game.",
+  "description": "Tap, chain and bloom through timed runs, then grow a cosmic garden on a giant upgrade map.",
   "start_url": "./",
   "scope": "./",
   "id": "./",

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0a0720">
-<meta name="description" content="Seedling Cosmos - tend a single cosmic seed until it grows into a living galaxy. An idle garden game.">
+<meta name="description" content="Seedling Cosmos - tap, chain and bloom your way through timed runs, then grow a cosmic garden on a giant upgrade map.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="Seedling Cosmos">
@@ -18,102 +18,147 @@
 <canvas id="stars" aria-hidden="true"></canvas>
 
 <div id="app">
-  <header id="top">
-    <div id="res" aria-live="off"></div>
-  </header>
+  <header id="top"><div id="res" aria-live="off"></div></header>
 
   <main id="main">
-    <!-- Garden -->
-    <section id="tab-garden" class="tab active">
-      <div class="zone-head">
-        <div id="zone-name" class="zone-name">Seed Pod</div>
-        <div id="zone-desc" class="zone-desc"></div>
-        <div class="bar zone-bar"><i id="zone-fill"></i><span id="zone-label"></span></div>
+    <!-- Play -->
+    <section id="tab-play" class="tab active">
+      <div class="zone-card">
+        <button id="zone-prev" class="zbtn" aria-label="Previous zone">‹</button>
+        <div class="zone-mid">
+          <canvas id="orb" width="300" height="300" aria-hidden="true"></canvas>
+          <div id="zone-name" class="zone-name">Moss Meadow</div>
+          <div id="zone-blurb" class="zone-desc"></div>
+        </div>
+        <button id="zone-next" class="zbtn" aria-label="Next zone">›</button>
       </div>
-      <div id="planet-wrap">
-        <canvas id="planet" width="340" height="340" aria-label="Tap the seed"></canvas>
-        <div id="pop-layer"></div>
-      </div>
-      <div class="tap-hint" id="tap-hint">Tap the seed!</div>
-      <div class="stat-row">
-        <div class="stat"><b id="st-tap">0</b><small>per tap</small></div>
-        <div class="stat"><b id="st-sps">0</b><small>Stardust / sec</small></div>
-        <div class="stat"><b id="st-auto">0</b><small>auto taps / sec</small></div>
-      </div>
-      <button id="rebloom-banner" class="btn big glow" hidden></button>
+      <div id="run-facts" class="facts"></div>
+      <div id="home-abilities" class="home-ab"></div>
+      <button id="btn-start" class="btn big glow">▶ Start run</button>
+      <div id="next-goal" class="next-goal"></div>
+      <div id="home-hint" class="muted center"></div>
     </section>
 
-    <!-- Helpers -->
-    <section id="tab-helpers" class="tab">
-      <h2>Helpers</h2>
-      <div id="buy-modes" class="seg" hidden>
-        <button data-mode="1" class="on">x1</button><button data-mode="10">x10</button><button data-mode="100">x100</button><button data-mode="max">Max</button>
+    <!-- Garden (upgrade map) -->
+    <section id="tab-garden" class="tab tab-map">
+      <div class="map-wrap"><div id="map-main" class="map"></div>
+        <div class="map-tools">
+          <button id="btn-grow" class="tool wide" title="Buy the cheapest upgrades you can afford">🌱 Grow all</button>
+          <button id="btn-center" class="tool" aria-label="Fit map">Fit</button>
+          <button id="btn-zin" class="tool" aria-label="Zoom in">＋</button>
+          <button id="btn-zout" class="tool" aria-label="Zoom out">－</button>
+        </div>
+        <div class="map-hint" id="hint-garden">Drag to pan · pinch to zoom · tap a node</div>
       </div>
-      <div id="auto-panel" class="card" hidden></div>
-      <div id="gen-list"></div>
-    </section>
-
-    <!-- Upgrades -->
-    <section id="tab-upgrades" class="tab">
-      <h2>Upgrades</h2>
-      <p class="muted" id="up-info"></p>
-      <div id="up-list"></div>
     </section>
 
     <!-- Prestige -->
-    <section id="tab-prestige" class="tab">
-      <h2>Rebloom</h2>
-      <div id="rebloom-card" class="card"></div>
-      <h3>Tree of Memory</h3>
-      <div id="mem-tree" class="tree"></div>
-      <div id="sn-section" hidden>
-        <h2>Supernova</h2>
-        <div id="sn-card" class="card"></div>
-        <h3>Star Core Constellation</h3>
-        <div id="core-tree" class="tree"></div>
+    <section id="tab-prestige" class="tab tab-map">
+      <div class="pres-top">
+        <div class="seg" id="pres-seg">
+          <button data-p="mem" class="on">🌸 Rebloom</button>
+          <button data-p="core">🌟 Supernova</button>
+        </div>
+        <div id="pres-card" class="pres-card"></div>
+      </div>
+      <div class="map-wrap"><div id="map-mem" class="map"></div><div id="map-core" class="map" hidden></div>
+        <div class="map-tools">
+          <button id="btn-grow-p" class="tool wide" title="Buy the cheapest perks you can afford">🌱 Grow all</button>
+          <button id="btn-pcenter" class="tool" aria-label="Fit map">Fit</button>
+          <button id="btn-pzin" class="tool" aria-label="Zoom in">＋</button>
+          <button id="btn-pzout" class="tool" aria-label="Zoom out">－</button>
+        </div>
       </div>
     </section>
 
-    <!-- Trophies -->
-    <section id="tab-trophies" class="tab">
-      <h2>Trophies</h2>
-      <p class="muted" id="ach-info"></p>
-      <div id="ach-list" class="ach-grid"></div>
-      <h3>Statistics</h3>
-      <div id="stats" class="card stats-card"></div>
-    </section>
-
-    <!-- Settings -->
-    <section id="tab-settings" class="tab">
+    <!-- More -->
+    <section id="tab-more" class="tab">
+      <h2>Garden notes</h2>
+      <div class="card" id="stats"></div>
       <h2>Settings</h2>
       <div class="card set-card">
         <label class="row"><span>Particles &amp; effects</span><input type="checkbox" id="set-fx"></label>
+        <label class="row"><span>Screen shake</span><input type="checkbox" id="set-shake"></label>
+        <label class="row"><span>Vibration</span><input type="checkbox" id="set-haptics"></label>
         <label class="row"><span>Scientific notation</span><input type="checkbox" id="set-sci"></label>
         <div class="row"><span>Save now</span><button class="btn small" id="btn-save">Save</button></div>
-        <div class="row"><span>Export save (text)</span><button class="btn small" id="btn-export">Export</button></div>
+        <div class="row"><span>Export save</span><button class="btn small" id="btn-export">Export</button></div>
         <div class="row"><span>Import save</span><button class="btn small" id="btn-import">Import</button></div>
         <div class="row"><span>Hard reset</span><button class="btn small danger" id="btn-reset">Reset</button></div>
       </div>
-      <p class="muted center">Seedling Cosmos v1.0 &middot; autosaves every 10 seconds</p>
+      <h2>How to play</h2>
+      <div class="card howto">
+        <p><b>Runs.</b> Each run is a short timed burst. Tap the glowing targets before they fade. Chain hits to build a combo multiplier, dodge purple spores, and use your active abilities.</p>
+        <p><b>Collect.</b> When time runs out you get a summary. Collect your Stardust and spend it in the <b>Garden</b> map: every node is a permanent upgrade (longer runs, bigger yield, new zones and abilities).</p>
+        <p><b>Rebloom &amp; Supernova.</b> Once the garden is grown, Rebloom for Seeds of Memory and a second map of permanent perks. Much later, Supernova for Star Cores and the Constellation.</p>
+      </div>
+      <p class="muted center" id="ver">Seedling Cosmos v2.0 &middot; autosaves every 10 seconds</p>
     </section>
   </main>
 
+  <div id="sheet" hidden>
+    <div class="sh-head"><span class="sh-ic" id="sh-ic"></span><div class="sh-title"><b id="sh-name"></b><small id="sh-lv"></small></div><button id="sh-x" class="sh-x" aria-label="Close">✕</button></div>
+    <div id="sh-desc" class="sh-desc"></div>
+    <div id="sh-now" class="sh-now"></div>
+    <button id="sh-buy" class="btn big">Upgrade</button>
+  </div>
+
   <nav id="nav">
-    <button data-tab="garden" class="on"><i>🌱</i><span>Garden</span></button>
-    <button data-tab="helpers" hidden><i>✨</i><span>Helpers</span><u></u></button>
-    <button data-tab="upgrades" hidden><i>⬆️</i><span>Upgrades</span><u></u></button>
-    <button data-tab="prestige" hidden><i>🌸</i><span>Bloom</span><u></u></button>
-    <button data-tab="trophies" hidden><i>🏆</i><span>Trophies</span></button>
-    <button data-tab="settings"><i>⚙️</i><span>More</span></button>
+    <button data-tab="play" class="on"><i>🌱</i><span>Play</span></button>
+    <button data-tab="garden"><i>🗺️</i><span>Garden</span><u></u></button>
+    <button data-tab="prestige"><i>🌸</i><span>Prestige</span><u></u></button>
+    <button data-tab="more"><i>⚙️</i><span>More</span></button>
   </nav>
 </div>
 
+<!-- Run screen -->
+<div id="run">
+  <div id="run-hud">
+    <div class="hud-top">
+      <button id="run-pause" class="pbtn" aria-label="Pause">⏸</button>
+      <div class="timer"><i id="run-time-fill"></i><span id="run-time-txt">30s</span></div>
+      <div class="score"><b id="run-score">0</b><small id="run-zone"></small></div>
+    </div>
+    <div id="run-combo" class="combo idle"><b id="combo-x">×1.00</b><small id="combo-n">COMBO</small><div class="combo-bar"><i id="combo-fill"></i></div></div>
+  </div>
+  <canvas id="run-canvas" aria-label="Tap the glowing targets"></canvas>
+  <div id="run-banner"></div>
+  <div id="run-abilities"></div>
+  <div id="run-pause-ov" hidden>
+    <div class="pause-box"><h1>Paused</h1>
+      <button id="run-resume" class="btn big">▶ Resume</button>
+      <button id="run-quit" class="btn big danger">Abandon run</button>
+      <p class="muted center">Abandoning forfeits this run's Stardust.</p></div>
+  </div>
+</div>
+
+<!-- Run summary -->
+<div id="summary" hidden>
+  <canvas id="sum-fx" aria-hidden="true"></canvas>
+  <div class="sum-box">
+    <div class="sum-title">Run complete</div>
+    <div id="sum-best" class="sum-best"></div>
+    <div class="sum-total"><b id="sum-total">0</b><small>Stardust</small></div>
+    <div id="sum-rows" class="sum-rows"></div>
+    <div id="sum-stats" class="sum-stats"></div>
+    <div id="sum-next" class="sum-next"></div>
+    <div class="btns">
+      <button id="sum-run" class="btn">▶ Collect &amp; run again</button>
+      <button id="sum-spend" class="btn good">🗺️ Collect &amp; upgrade</button>
+    </div>
+  </div>
+</div>
+
+<div id="flash" aria-hidden="true"></div>
 <div id="toasts" aria-live="polite"></div>
 <div id="modal" hidden><div id="modal-box" role="dialog" aria-modal="true"></div></div>
 
+<script src="js/costs.js"></script>
 <script src="js/data.js"></script>
 <script src="js/core.js"></script>
 <script src="js/fx.js"></script>
+<script src="js/map.js"></script>
+<script src="js/game.js"></script>
 <script src="js/ui.js"></script>
 </body>
 </html>

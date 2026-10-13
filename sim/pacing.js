@@ -1,228 +1,204 @@
 #!/usr/bin/env node
-/* Seedling Cosmos - pacing simulation.
- * Simulates a reasonable player and prints time-to-milestone.
- * Usage: node sim/pacing.js [--quiet] [--days=N]
- * Overrides for experiments: --set=KNOB=value  --zone=index:threshold
+/* Seedling Cosmos v2 - pacing simulation.
+ * Drives the REAL run engine (js/core.js) with a bot that taps like a reasonable human, plays N sessions per day,
+ * spends everything greedily (cheapest affordable upgrade first) and prestiges with a sensible rule.
  *
- * Player model (wall-clock time):
- *   - first 2 hours: continuously active, tapping 4x/s and shopping every second
- *   - afterwards: four 12-minute sessions per day (offsets 6h, 12h, 17h, 21h from the start of each day-cycle),
- *     tapping 4x/s; in between the game is closed and only capped, reduced-efficiency offline progress applies
- *   - shopping: lowest payback-time purchase first (tap/helper/upgrade), cheap resource buys when affordable
- *   - prestige: Rebloom when the gain is >= max(1, 50% of Seeds earned this cycle); Supernova when gain >= max(1, 50% of Cores)
- *     and the prestige trees are spent cheapest-first following a sensible priority order
+ * Usage: node sim/pacing.js [--days=90] [--seed=1] [--quiet] [--quick] [--no-write]
+ *        [--sessions=3] [--runs=4] [--taps=2.8] [--precision=0.88] [--set=KNOB=value ...]
+ * Writes SIM_RESULTS.md at the repo root.
  */
 'use strict';
+const fs = require('fs');
+const path = require('path');
+const D = require('../js/data.js');
 const C = require('../js/core.js');
-const D = C.D;
 
-const argv = process.argv.slice(2);
-const QUIET = argv.includes('--quiet');
-const maxDays = +((argv.find((a) => a.startsWith('--days=')) || '--days=200').split('=')[1]);
+// ---------- args ----------
+const args = {}; const sets = [];
+process.argv.slice(2).forEach((a) => {
+  const m = /^--([^=]+)(?:=(.*))?$/.exec(a); if (!m) return;
+  if (m[1] === 'set') sets.push(m[2]); else args[m[1]] = m[2] === undefined ? true : m[2];
+});
+sets.forEach((s) => { const [k, v] = s.split('='); if (!(k in D.BAL)) throw new Error('unknown knob ' + k); D.BAL[k] = JSON.parse(v); });
+const DAYS = +args.days || 90;
+const QUIET = !!args.quiet;
 
-// Experiment overrides: --set=SN_K=5 (balance knob), --zone=7:1e34 (zone threshold)
-argv.forEach((a) => {
-  if (a.startsWith('--set=')) { const [k, v] = a.slice(6).split('='); D.T[k] = +v; }
-  if (a.startsWith('--zone=')) { const [i, v] = a.slice(7).split(':'); D.ZONES[+i].thr = +v; }
+const { rngFrom, BASE_PLAYER_DEFAULTS, botRun, sessionTimes } = require('./bot.js');
+const BASE_PLAYER = Object.assign({}, BASE_PLAYER_DEFAULTS, {
+  sessions: +args.sessions || 3, runsPerSession: +args.runs || 4, tapsPerSec: +args.taps || BASE_PLAYER_DEFAULTS.tapsPerSec, precision: +args.precision || BASE_PLAYER_DEFAULTS.precision
 });
 
-const TAPS = 4, DT = 0.5, INIT = 2 * 3600, DAY = 86400, SESS_LEN = 12 * 60;
-const SESS = [6, 12, 17, 21].map((h) => h * 3600);
-
-const s = C.newState();
-let t = 0;
-const R = { zones: {}, firstHelper: null, firstUpgrade: null, firstRebloom: null, firstSupernova: null, complete: null };
-const unlocks = []; // times of "something new" events
-const reblooms = [], supernovas = [];
-const seenGen = {};
-
-function fmtT(sec) {
-  if (sec === null || sec === undefined) return 'never';
-  sec = Math.round(sec);
-  if (sec < 60) return sec + 's';
-  const d = Math.floor(sec / 86400), h = Math.floor(sec % 86400 / 3600), m = Math.floor(sec % 3600 / 60);
-  if (d) return d + 'd ' + h + 'h ' + m + 'm';
-  if (h) return h + 'h ' + m + 'm';
-  return m + 'm ' + (sec % 60) + 's';
-}
-
-function income() {
-  const m = s._m;
-  return C.rates(s).sd + (TAPS + m.autoTap) * C.tapValue(s) * (1 + m.crit * (m.critMul - 1));
-}
-
-function note(ev) {
-  for (const e of ev) {
-    if (e.type === 'zone') { R.zones[e.z] = t; unlocks.push(t); if (e.z === D.ZONES.length - 1) R.complete = t; }
-    else if (e.type === 'ms' || e.type === 'ach') unlocks.push(t);
-    else if (e.type === 'rebloom') reblooms.push(t);
-    else if (e.type === 'supernova') supernovas.push(t);
+// ---------- greedy shopping ----------
+function shop(S, log, now) {
+  let bought = 0, guard = 0;
+  while (++guard < 400) {
+    let best = null, bc = Infinity;
+    for (const kind of ['mem', 'core', 'main']) {
+      D.MAPS[kind].nodes.forEach((n) => {
+        if (!C.canBuy(S, kind, n)) return;
+        const key = (kind === 'main' ? 1 : 0) * 1e300 + C.nodeCost(S, kind, n); // prestige currencies can't be spent elsewhere
+        if (key < bc) { bc = key; best = { kind, n }; }
+      });
+    }
+    if (!best) break;
+    const lvl = C.level(S, best.kind, best.n.id);
+    C.buy(S, best.kind, best.n.id); bought++;
+    log.purchases.push({ t: now, kind: best.kind, id: best.n.id, level: lvl + 1 });
   }
+  return bought;
 }
 
-function afterBuy() {
-  if (R.firstHelper === null && C.totalGens(s) > 0) { R.firstHelper = t; unlocks.push(t); }
-  if (R.firstUpgrade === null && s.life.upsb > 0) R.firstUpgrade = t;
-  for (const id in s.gens) if (!seenGen[id]) { seenGen[id] = 1; unlocks.push(t); }
+// ---------- prestige rules ----------
+function maybePrestige(S, st, log, now) {
+  if (args.noprestige) return false;
+  const ng = C.novaGain(S);
+  const coreDone = C.counts(S, 'core').maxed === D.CORE.nodes.length;
+  if (ng >= 1 && !coreDone && now - st.lastNova > 2 * 86400) {
+    const stalled = now - st.lastBuy > 4 * 86400;
+    if (ng >= Math.max(2, 1.0 * S.cores) || stalled) {
+      const seeds = S.seedsEra;
+      C.supernova(S); log.novas.push({ t: now, gain: ng, seeds }); st.lastBuy = now; st.lastNova = now; st.lastPrestige = now; return true;
+    }
+  }
+  const g = C.rebloomGain(S);
+  if (g >= 1 && now - st.lastPrestige > 0.7 * 86400) {
+    const stalled = now - st.lastBuy > 1.2 * 86400;
+    const mainDone = C.counts(S, 'main').maxed === D.MAIN.nodes.length;
+    const cheapest = D.MEM.nodes.reduce((m, n) => (C.nodeState(S, 'mem', n) === 'locked' || C.nodeState(S, 'mem', n) === 'maxed' ? m : Math.min(m, C.nodeCost(S, 'mem', n))), Infinity);
+    const worthIt = cheapest === Infinity ? !coreDone : S.seeds + g >= cheapest; // never reset for Seeds that cannot buy anything (Seeds also feed Supernova)
+    if (worthIt && (g >= Math.max(6, 1.0 * S.seedsEra) || stalled || mainDone)) {
+      C.rebloom(S); log.reblooms.push({ t: now, gain: g, cycle: log.reblooms.length + 1 }); st.lastBuy = now; st.lastPrestige = now; return true;
+    }
+  }
+  return false;
 }
 
-// ----- shopping -----
-function shop() {
-  for (let guard = 0; guard < 60; guard++) {
-    let bought = false;
-    // non-stardust upgrades and resource helpers: buy whenever cheap relative to the stock
-    const ups = C.visibleUps(s);
-    for (const u of ups) {
-      if (u.res !== 'sd' && s.res[u.res] >= u.cost) { C.buyUp(s, u.id); bought = true; unlocks.push(t); }
-    }
-    for (const g of D.GENS) {
-      if (g.makes === 'sd' || !C.genVisible(s, g)) continue;
-      const budget = s.res[g.costRes] * (g.costRes === 'sd' ? 0.05 : 0.4);
-      if (C.genMax(s, g, budget) >= 1) { C.buyGen(s, g.id, 1); bought = true; }
-    }
-    // stardust purchases: best payback time (cost / income gained)
-    const base = income();
-    let best = null, bestPb = Infinity;
-    for (const g of D.SD_GENS) {
-      if (!C.genVisible(s, g)) continue;
-      const cost = C.genCost(s, g, 1);
-      s.gens[g.id] = (s.gens[g.id] || 0) + 1; C.recalc(s);
-      const d = income() - base;
-      s.gens[g.id]--; if (!s.gens[g.id]) delete s.gens[g.id];
-      C.recalc(s);
-      const pb = cost / Math.max(d, 1e-300);
-      if (d > 0 && pb < bestPb) { bestPb = pb; best = { gen: g.id, cost }; }
-    }
-    for (const u of ups) {
-      if (u.res !== 'sd') continue;
-      s.ups[u.id] = true; C.recalc(s);
-      const d = income() - base;
-      delete s.ups[u.id]; C.recalc(s);
-      const pb = u.cost / Math.max(d, 1e-300);
-      if (d > 0 && pb < bestPb) { bestPb = pb; best = { up: u.id, cost: u.cost }; }
-      else if (d <= 0 && (u.fx.autoGens || u.fx.autoRes || u.fx.offEff) && (!best || u.cost <= best.cost * 3)) {
-        // automation / offline perks have no direct income: buy when roughly as cheap as the best income purchase
-        best = { up: u.id, cost: u.cost }; bestPb = 0;
+// ---------- the whole playthrough ----------
+function simulate(p, seed) {
+  const rng = rngFrom(seed);
+  const S = C.newState();
+  const log = { runs: [], purchases: [], reblooms: [], novas: [], days: [], complete: null, mainDone: null, p };
+  const st = { lastBuy: 0, lastPrestige: -1e9, lastNova: 0 };
+  const starts = sessionTimes(p.sessions);
+  for (let day = 0; day < DAYS && !log.complete; day++) {
+    let dayRuns = 0, dayEarn = 0; const dayBuys = log.purchases.length;
+    for (const s0 of starts) {
+      let now = day * 86400 + (s0 - starts[0]) + (day ? rng() * 600 : 0);
+      for (let r = 0; r < p.runsPerSession; r++) {
+        const sum = botRun(S, p, rng);
+        now += sum.duration + p.overhead * 0.5;
+        C.collectPending(S);
+        const nb = shop(S, log, now);
+        if (nb) st.lastBuy = now;
+        log.runs.push({ n: S.runs, t: now, zone: sum.zone, dur: sum.duration, reward: sum.total, combo: sum.maxCombo, hits: sum.hits, misses: sum.misses, bought: nb });
+        dayRuns++; dayEarn += sum.total;
+        now += p.overhead * 0.5;
+        if (maybePrestige(S, st, log, now)) { if (shop(S, log, now)) st.lastBuy = now; }
+        if (!log.mainDone && C.counts(S, 'main').maxed === D.MAIN.nodes.length) log.mainDone = now;
+        if (C.allMaxed(S)) { log.complete = now; break; }
       }
+      if (log.complete) break;
     }
-    if (best && s.res.sd >= best.cost) {
-      if (best.gen) C.buyGen(s, best.gen, 1); else { C.buyUp(s, best.up); unlocks.push(t); }
-      bought = true;
-    }
-    if (!bought) break;
+    const stt = C.stats(S);
+    log.days.push({ day: day + 1, runs: dayRuns, zone: S.zone, time: stt.time, mainLv: C.counts(S, 'main').levels, buys: log.purchases.length - dayBuys, avgRun: dayEarn / Math.max(1, dayRuns), mem: C.counts(S, 'mem').levels, core: C.counts(S, 'core').levels, reblooms: log.reblooms.length, novas: log.novas.length });
   }
-  afterBuy();
+  log.S = S; log.daysPlayed = log.days.length;
+  return log;
 }
 
-// ----- prestige -----
-const MEM_PRI = ['mdust', 'mgen', 'mgain', 'mtap', 'mstart', 'mautoup', 'mauto', 'mcost', 'mres', 'moffc', 'moffe', 'mtapsps', 'mcrit', 'mautore'];
-const CORE_PRI = ['cdust', 'cmem', 'cgen', 'cres', 'cstartmem', 'croots', 'cgainc', 'ctap', 'ccost', 'coff', 'coffe', 'cmuse', 'cautosn'];
-function spend(byId, pri, curKey, buyFn, levels) {
-  for (let guard = 0; guard < 500; guard++) {
-    let pick = null, pc = Infinity;
-    for (const id of pri) {
-      const n = byId[id], l = levels[id] || 0;
-      if (l >= n.max) continue;
-      const c = C.treeCost(n, l);
-      if (c <= s[curKey] && c < pc) { pc = c; pick = id; }
-    }
-    if (!pick || !buyFn(s, pick)) return;
+// ---------- analysis ----------
+const dh = (s) => { const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600); return d ? d + 'd ' + h + 'h' : h ? h + 'h ' + Math.floor((s % 3600) / 60) + 'm' : Math.floor(s / 60) + 'm ' + Math.floor(s % 60) + 's'; };
+const sorted = (a) => a.slice().sort((x, y) => x - y);
+const median = (a) => (a.length ? sorted(a)[Math.floor(a.length / 2)] : 0);
+const pct = (a, q) => (a.length ? sorted(a)[Math.min(a.length - 1, Math.floor(a.length * q))] : 0);
+const maxOf = (a) => a.reduce((m, x) => Math.max(m, x), 0);
+
+function analyse(log) {
+  const buys = log.purchases;
+  const gaps = []; for (let i = 1; i < buys.length; i++) gaps.push(buys[i].t - buys[i - 1].t);
+  const runGaps = []; let last = -1;
+  log.runs.forEach((r, i) => { if (r.bought) { if (last >= 0) runGaps.push(i - last); last = i; } });
+  const sessions = {}, withBuy = {};
+  log.runs.forEach((r) => { const k = Math.floor(r.t / 3600 / 4); sessions[k] = 1; if (r.bought) withBuy[k] = 1; });
+  const perWeek = [];
+  for (let w = 0; w * 7 < log.daysPlayed; w++) {
+    const a = w * 7 * 86400, b = a + 7 * 86400;
+    perWeek.push({ w: w + 1, buys: buys.filter((x) => x.t >= a && x.t < b).length, runs: log.runs.filter((x) => x.t >= a && x.t < b).length });
   }
-}
-const byMem = {}, byCore = {};
-D.MEM_TREE.forEach((n) => { byMem[n.id] = n; });
-D.CORE_TREE.forEach((n) => { byCore[n.id] = n; });
-function prestige() {
-  const sg = C.supernovaGain(s);
-  if (sg >= 1 && sg >= Math.max(1, 0.5 * s.life.coreAll)) {
-    if (C.supernova(s)) { supernovas.push(t); if (R.firstSupernova === null) R.firstSupernova = t; unlocks.push(t); }
-  } else {
-    const g = C.rebloomGain(s);
-    // keep pushing the current run while a brand-new zone is within reach (3 orders of magnitude)
-    const nz = D.ZONES[s.life.bestZone + 1];
-    const pushing = nz && s.run.sd * 1e3 >= nz.thr && s.run.time < 12 * 3600;
-    if (g >= 1 && !pushing && g >= Math.max(1, 0.5 * s.memAll)) {
-      if (C.rebloom(s)) { reblooms.push(t); if (R.firstRebloom === null) R.firstRebloom = t; unlocks.push(t); }
-    }
-  }
-  spend(byCore, CORE_PRI, 'cores', C.buyCore, s.coreUp);
-  spend(byMem, MEM_PRI, 'mem', C.buyMem, s.memUp);
+  return { gaps, runGaps, buys, perWeek, sessionRatio: Object.keys(withBuy).length / Math.max(1, Object.keys(sessions).length) };
 }
 
-// ----- schedule -----
-function nextStart(tt) {
-  if (tt < INIT) return tt;
-  const base = Math.floor((tt - INIT) / DAY) * DAY + INIT;
-  for (let d = 0; d < 3; d++) for (const o of SESS) { const st = base + d * DAY + o; if (st > tt) return st; }
-  return tt;
-}
-function inWindow(tt) {
-  if (tt < INIT) return true;
-  const p = (tt - INIT) % DAY;
-  return SESS.some((o) => p >= o && p < o + SESS_LEN);
+// ---------- report ----------
+function report(main, profiles) {
+  const A = analyse(main), S = main.S, p = main.p, L = [];
+  L.push('# Seedling Cosmos v2 - pacing simulation results', '');
+  L.push('Generated by `node sim/pacing.js` (seed ' + (args.seed || 1) + '). The bot drives the real run engine in `js/core.js`; nothing here is an analytic estimate.', '');
+  L.push('## Player model', '');
+  L.push('- **' + p.sessions + ' sessions/day x ' + p.runsPerSession + ' runs** = ' + (p.sessions * p.runsPerSession) + ' runs/day (sessions start at ' + sessionTimes(p.sessions).map((s) => s / 3600 + ':00').join(', ') + ')');
+  L.push('- Sustained tap rate ' + p.tapsPerSec + '/s, ' + Math.round(p.precision * 100) + '% of taps land, ' + p.react + 's reaction time, ' + Math.round(p.abilityUse * 100) + '% ability usage, ~' + p.overhead + 's of menus per run, never taps spores');
+  L.push('- Spends greedily (cheapest affordable upgrade first). Prestige at most once per ~17h (Rebloom) / 2 days (Supernova). Rebloom when the Seed gain is >= max(6, Seeds already earned this Supernova era), i.e. it would at least double them, or after 1.2 days without a purchase; Supernova when the gain is >= max(2, owned Cores), or after 4 days without a purchase. No more Supernovas once the Constellation is complete.', '');
+
+  L.push('## Headline', '');
+  L.push('| Metric | Value | Target |', '|---|---|---|');
+  L.push('| Full completion (all 3 maps maxed) | **' + (main.complete ? dh(main.complete) + ' (' + (main.complete / 86400 / 7).toFixed(1) + ' weeks)' : 'not reached in ' + DAYS + ' days') + '** | 3-6 weeks |');
+  L.push('| Runs played to completion | ' + main.runs.length + ' | |');
+  L.push('| Reblooms / Supernovas | ' + main.reblooms.length + ' / ' + main.novas.length + ' | |');
+  L.push('| Upgrade levels bought | ' + A.buys.length + ' | |');
+  L.push('| Median runs between purchases | ' + median(A.runGaps) + ' (90th pct ' + pct(A.runGaps, 0.9) + ', max ' + maxOf(A.runGaps) + ') | steady |');
+  L.push('| Median / longest calendar gap between purchases | ' + dh(median(A.gaps)) + ' / ' + dh(maxOf(A.gaps)) + ' | |');
+  L.push('| Play sessions (4h windows) with at least one purchase | ' + Math.round(A.sessionRatio * 100) + '% | |', '');
+
+  L.push('## First runs', '');
+  L.push('| Run | Elapsed | Zone | Length | Reward | Max combo | Upgrades bought after |', '|---|---|---|---|---|---|---|');
+  main.runs.slice(0, 14).forEach((r) => L.push('| ' + r.n + ' | ' + dh(r.t) + ' | ' + r.zone + ' | ' + Math.round(r.dur) + 's | ' + C.fmt(r.reward) + ' | ' + r.combo + ' | ' + r.bought + ' |'));
+  L.push('', 'First 15 purchases:', '', '| # | Time | Upgrade | Level | Gap since previous |', '|---|---|---|---|---|');
+  A.buys.slice(0, 15).forEach((b, i) => L.push('| ' + (i + 1) + ' | ' + dh(b.t) + ' | ' + D.MAPS[b.kind].byId[b.id].name + ' | ' + b.level + ' | ' + (i ? dh(b.t - A.buys[i - 1].t) : '-') + ' |'));
+
+  L.push('', '## Progress per week', '', '| Week | Runs | Purchases | Purchases per run |', '|---|---|---|---|');
+  A.perWeek.forEach((w) => L.push('| ' + w.w + ' | ' + w.runs + ' | ' + w.buys + ' | ' + (w.buys / Math.max(1, w.runs)).toFixed(2) + ' |'));
+
+  L.push('', '## Day by day', '', '| Day | Runs | Zone | Run length | Avg reward/run | Buys | Main lvls | Memory lvls | Core lvls | Reblooms | Novas |', '|---|---|---|---|---|---|---|---|---|---|---|');
+  main.days.forEach((d) => { if (d.day <= 10 || d.day % 3 === 0 || d.day === main.days.length) L.push('| ' + d.day + ' | ' + d.runs + ' | ' + d.zone + ' | ' + d.time.toFixed(0) + 's | ' + C.fmt(d.avgRun) + ' | ' + d.buys + ' | ' + d.mainLv + ' | ' + d.mem + ' | ' + d.core + ' | ' + d.reblooms + ' | ' + d.novas + ' |'); });
+
+  L.push('', '## Prestige timeline', '', '| Event | When | Gain |', '|---|---|---|');
+  main.reblooms.slice(0, 40).forEach((r) => L.push('| Rebloom #' + r.cycle + ' | ' + dh(r.t) + ' | ' + r.gain + ' Seeds |'));
+  if (main.reblooms.length > 40) L.push('| ... | ' + (main.reblooms.length - 40) + ' more Reblooms | |');
+  main.novas.forEach((r, i) => L.push('| **Supernova #' + (i + 1) + '** | ' + dh(r.t) + ' | ' + r.gain + ' Star Cores |'));
+
+  L.push('', '## First time in each zone', '', '| Zone | First played |', '|---|---|');
+  const seen = {}; main.runs.forEach((r) => { if (!seen[r.zone]) { seen[r.zone] = 1; L.push('| ' + D.ZONES[r.zone].name + ' | ' + dh(r.t) + ' |'); } });
+
+  L.push('', '## Completion time by player type', '', '| Profile | Runs/day | Tap rate | Precision | Completion |', '|---|---|---|---|---|');
+  profiles.forEach((x) => L.push('| ' + x.name + ' | ' + (x.p.sessions * x.p.runsPerSession) + ' | ' + x.p.tapsPerSec + '/s | ' + Math.round(x.p.precision * 100) + '% | ' + (x.log.complete ? dh(x.log.complete) + ' (' + (x.log.complete / 86400 / 7).toFixed(1) + ' weeks)' : 'not within ' + DAYS + ' days') + ' |'));
+
+  L.push('', '## Content size', '');
+  ['main', 'mem', 'core'].forEach((k) => { const c = C.counts(S, k); L.push('- ' + { main: 'Garden map', mem: 'Memory map (Rebloom)', core: 'Constellation map (Supernova)' }[k] + ': ' + c.total + ' nodes, ' + c.maxLevels + ' levels'); });
+  L.push('- Run length: base ' + D.BAL.BASE_TIME + 's, end state ' + C.stats(S).time.toFixed(0) + 's', '');
+  return L.join('\n');
 }
 
-// ----- daily log -----
-const daily = [];
-let nextLog = DAY, bestRun = 0;
-function logDaily() {
-  while (t >= nextLog) {
-    daily.push(`day ${String(Math.round(nextLog / DAY)).padStart(3)}: zone ${s.life.bestZone} (${D.ZONES[s.life.bestZone].name}), reblooms ${s.life.reblooms}, seeds(cycle) ${C.fmt(s.memAll)}, supernovas ${s.life.supernovas}, cores ${C.fmt(s.life.coreAll)}, run zone ${s.zone}, sd/s ${C.fmt(C.rates(s).sd)}, best run sd ${C.fmt(bestRun)}`);
-    nextLog += DAY;
-  }
-}
+// ---------- main ----------
+const seed = +args.seed || 1;
+const standard = simulate(BASE_PLAYER, seed);
+const profs = [{ name: 'Standard (this report)', p: BASE_PLAYER, log: standard }];
+const variants = [
+  ['Casual: 2 sessions x 3 runs', { sessions: 2, runsPerSession: 3 }],
+  ['Regular: 4 sessions x 4 runs', { sessions: 4, runsPerSession: 4 }],
+  ['Dedicated: 5 sessions x 6 runs', { sessions: 5, runsPerSession: 6 }],
+  ['Standard, clumsy (2.0 taps/s, 75% precision)', { tapsPerSec: 2.0, precision: 0.75 }],
+  ['Standard, expert (4.0 taps/s, 95% precision)', { tapsPerSec: 4.0, precision: 0.95 }]
+];
+if (!args.quick) variants.forEach(([name, o]) => { const p = Object.assign({}, BASE_PLAYER, o, { name }); profs.push({ name, p, log: simulate(p, seed) }); });
 
-// ----- main loop -----
-let tickN = 0;
-const wall0 = Date.now();
-const END = maxDays * DAY;
-while (t < END && R.complete === null) {
-  if (!inWindow(t)) {
-    const tn = nextStart(t);
-    const off = C.offline(s, tn - t);
-    t = tn; note(off.events); afterBuy(); logDaily();
-    continue;
-  }
-  C.tap(s, TAPS * DT);
-  note(C.tick(s, DT));
-  t += DT; tickN++;
-  if (s.run.sd > bestRun) bestRun = s.run.sd;
-  if (tickN % 2 === 0) { shop(); prestige(); }
-  if (tickN % 2000 === 0) logDaily();
+const md = report(standard, profs);
+if (!args['no-write']) fs.writeFileSync(path.join(__dirname, '..', 'SIM_RESULTS.md'), md);
+if (args.brief) {
+  const A = analyse(standard), fz = (z) => { const r = standard.runs.find((x) => x.zone >= z); return r ? (r.t / 86400).toFixed(1) : '-'; };
+  console.log('mainDone=' + (standard.mainDone ? (standard.mainDone / 86400).toFixed(1) + 'd' : 'NO') + ' done=' + (standard.complete ? (standard.complete / 86400).toFixed(1) + 'd' : 'NO') + ' runs=' + standard.runs.length + ' reb=' + standard.reblooms.length + ' nova=' + standard.novas.length + ' firstReb=' + (standard.reblooms[0] ? (standard.reblooms[0].t / 86400).toFixed(1) : '-') + 'd firstNova=' + (standard.novas[0] ? (standard.novas[0].t / 86400).toFixed(1) : '-') + 'd zones@' + [1, 2, 3, 4, 5, 6].map(fz).join('/') + ' runGapP90=' + pct(A.runGaps, 0.9) + ' maxRunGap=' + maxOf(A.runGaps));
+} else if (!QUIET) {
+  const A = analyse(standard);
+  console.log('Standard player: completion ' + (standard.complete ? dh(standard.complete) + ' (' + (standard.complete / 86400 / 7).toFixed(1) + ' weeks)' : 'NOT reached in ' + DAYS + ' days'));
+  console.log('runs ' + standard.runs.length + ', reblooms ' + standard.reblooms.length + ', novas ' + standard.novas.length + ', purchases ' + A.buys.length);
+  console.log('first run reward ' + C.fmt(standard.runs[0].reward) + ', first purchase at ' + dh(A.buys[0] ? A.buys[0].t : 0) + '; median runs between buys ' + median(A.runGaps) + ', p90 ' + pct(A.runGaps, 0.9) + ', max ' + maxOf(A.runGaps) + ', max calendar gap ' + dh(maxOf(A.gaps)) + ', sessions with buy ' + Math.round(A.sessionRatio * 100) + '%');
+  profs.slice(1).forEach((x) => console.log('  ' + x.name + ': ' + (x.log.complete ? (x.log.complete / 86400 / 7).toFixed(1) + ' weeks' : 'not done')));
 }
-logDaily();
-
-// ----- report -----
-const out = [];
-const P = (x) => out.push(x);
-P('# Seedling Cosmos pacing simulation');
-P('');
-P('Simulated player: 2h continuous play, then 4 x 12 min sessions/day; offline cap/efficiency per in-game upgrades.');
-P('Balance knobs: ' + JSON.stringify(D.T));
-P('');
-P('## Key milestones (simulated wall-clock time)');
-P('- First helper bought:  ' + fmtT(R.firstHelper));
-P('- First upgrade bought: ' + fmtT(R.firstUpgrade));
-D.ZONES.forEach((z, i) => P('- Zone ' + i + ' ' + z.name.padEnd(15) + ' reached: ' + fmtT(i === 0 ? 0 : R.zones[i])));
-P('- First Rebloom:        ' + fmtT(R.firstRebloom));
-P('- First Supernova:      ' + fmtT(R.firstSupernova));
-P('- Game completion (The Worldtree): ' + fmtT(R.complete) + (R.complete ? '  (' + (R.complete / DAY).toFixed(1) + ' days)' : ''));
-P('');
-P('Total reblooms: ' + reblooms.length + ', supernovas: ' + supernovas.length + ', achievements: ' + Object.keys(s.ach).length + '/' + D.ACH.length + ', upgrades bought (lifetime): ' + s.life.upsb);
-P('First 10 reblooms at: ' + reblooms.slice(0, 10).map(fmtT).join(', '));
-P('Supernovas at: ' + (supernovas.slice(0, 10).map(fmtT).join(', ') || 'none'));
-// cadence of unlocks in first 30 min
-const early = unlocks.filter((x) => x <= 1800).sort((a, b) => a - b);
-let maxGap = 0, prev = 0;
-early.forEach((x) => { maxGap = Math.max(maxGap, x - prev); prev = x; });
-maxGap = Math.max(maxGap, 1800 - prev);
-P('');
-P('## First 30 minutes: ' + early.length + ' unlock events (zones, milestones, achievements, new helpers, upgrades); longest quiet gap ' + fmtT(maxGap));
-const zoneTimes = Object.keys(R.zones).map((k) => R.zones[k]).filter((x) => x <= 1800).sort((a, b) => a - b);
-P('Zone arrivals in first 30 min: ' + zoneTimes.map(fmtT).join(', '));
-P('');
-P('## Daily snapshots');
-(QUIET ? daily.filter((_, i) => i % 3 === 0) : daily).forEach((l) => P(l));
-P('');
-P('(simulated ' + tickN + ' active ticks in ' + ((Date.now() - wall0) / 1000).toFixed(1) + 's of CPU time)');
-console.log(out.join('\n'));
