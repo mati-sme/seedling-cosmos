@@ -4,7 +4,7 @@
   const C = root.SC_CORE, D = root.SC_DATA, FX = root.SC_FX;
   const TAU = Math.PI * 2, rnd = Math.random;
   const AB_ORDER = ['nova', 'slow', 'golden', 'magnet', 'chrono'];
-  const KIND_HUE = { gold: 44, comet: 14, pod: 145, orb: 188, spore: 340 };
+  const KIND_HUE = { gold: 44, comet: 14, pod: 145, orb: 188 };
   const MILESTONES = [10, 25, 50, 100, 200, 400, 800, 1600];
 
   function create(o) {
@@ -14,7 +14,7 @@
     const parts = FX.Particles();
     let run = null, phase = 'idle', last = 0, W = 1, Hpx = 1, dpr = 1, count = 0, countShown = -1, endT = 0;
     let shakeMag = 0, flash = null, tint = null, shownScore = 0, lastMilestone = 0, stars = [], abBtns = {}, zoneHue = 140, tapRipples = [];
-    let comboPrev = 0, raf = 0;
+    let comboPrev = 0, raf = 0, hammers = [];
 
     function resize() {
       const r = canvas.getBoundingClientRect(); if (!r.width) return;
@@ -66,18 +66,15 @@
         const e = evs[i];
         switch (e.type) {
           case 'hit': onHit(e); break;
-          case 'podhit': parts.burst(px(e.x), px(e.y), { n: 6, hue: 135, speed: 120, size: 3 }); FX.haptic(8); break;
+          case 'podhit': parts.burst(px(e.x), px(e.y), { n: 6, hue: 135, speed: 120, size: 3 }); parts.text(px(e.x), px(e.y) - 10, '×' + Math.max(1, Math.ceil(e.hp)), { color: '#b8f5c8', size: 14, life: 0.5 }); FX.haptic(8); break;
           case 'miss':
             parts.ring(px(e.x), px(e.y), 220, 22, 0.3);
             if (e.lost > 0) parts.text(px(e.x), px(e.y) - 14, '-' + e.lost, { color: '#ff8aa0', size: 16, life: 0.7 });
             break;
-          case 'spore':
-            shake(11); doFlash(350, 0.4); FX.haptic([30, 30, 40]);
-            parts.burst(px(e.x), px(e.y), { n: 22, hue: 320, speed: 200, size: 3.5 });
-            parts.text(px(e.x), px(e.y), e.pen ? '-' + e.pen + 's' : 'SPORE!', { color: '#ff5d8a', size: 28, glow: '#ff1f66', pop: true, life: 1.1 });
-            break;
-          case 'shield': parts.text(px(e.x), px(e.y), 'Shrugged off!', { color: '#7cf0b4', size: 18 }); parts.ring(px(e.x), px(e.y), 150, 40, 0.4); break;
-          case 'expire': if (e.kind !== 'spore') parts.burst(px(e.x), px(e.y), { n: 3, hue: 230, speed: 40, grav: -20, size: 2, life: 0.5 }); break;
+          case 'swing': hammers.push({ x: px(e.x), y: px(e.y), t: 0, wind: e.wind, dbl: e.double, landed: false }); break;
+          case 'slam': onSlam(e); break;
+          case 'late': parts.ring(px(e.x), px(e.y), 200, 18, 0.25); break;
+          case 'expire': parts.burst(px(e.x), px(e.y), { n: 3, hue: 230, speed: 40, grav: -20, size: 2, life: 0.5 }); break;
           case 'combolost': parts.text(W / 2, Hpx * 0.32, 'Combo lost', { color: '#b9b2ff', size: 20, life: 0.9 }); shake(3); break;
           case 'ability': onAbility(e.k); break;
           case 'end': break;
@@ -88,14 +85,12 @@
     function onHit(e) {
       const x = px(e.x), y = px(e.y), hue = e.kind === 'mote' ? zoneHue : KIND_HUE[e.kind];
       const combo = e.combo, big = e.kind === 'pod' || e.kind === 'comet' || e.crit;
-      if (e.via === 'auto') { parts.burst(x, y, { n: 4, hue, speed: 80, size: 2.5, life: 0.5 }); parts.text(x, y - 6, C.fmt(e.val), { color: '#a9c7ff', size: 12, life: 0.6 }); return; }
       parts.burst(x, y, { n: Math.min(30, 7 + (big ? 10 : 0) + Math.floor(combo / 6)), hue, speed: big ? 230 : 160, size: big ? 4 : 3, star: e.kind === 'gold' || e.crit });
       if (big) parts.ring(x, y, hue, 56, 0.4);
       const sz = Math.min(34, 15 + Math.log10(e.val + 1) * 1.4 + (e.crit ? 8 : 0));
       if (e.kind === 'orb') parts.text(x, y - 10, '+' + (e.orbT ? e.orbT.toFixed(1).replace(/\.0$/, '') : '0') + 's', { color: '#7df5e3', size: 22, glow: '#00e5c0', pop: true });
-      else parts.text(x, y - 8, (e.crit ? 'CRIT ' : '') + '+' + C.fmt(e.val), { color: e.crit ? '#fff' : e.kind === 'gold' ? '#ffd86b' : '#eaf2ff', size: sz, glow: e.crit ? '#ff4fd0' : e.kind === 'gold' ? '#ff9d00' : null, pop: e.crit || big });
+      else parts.text(x, y - 8, (e.via === 'hammer' ? '🔨' : e.via === 'sprite' ? '✦' : '') + (e.crit ? 'CRIT ' : '') + '+' + C.fmt(e.val), { color: e.crit ? '#fff' : e.kind === 'gold' ? '#ffd86b' : '#eaf2ff', size: sz, glow: e.crit ? '#ff4fd0' : e.kind === 'gold' ? '#ff9d00' : null, pop: e.crit || big });
       if (e.crit) { shake(7); FX.haptic(18); doFlash(320, 0.18); } else if (e.kind === 'pod' || e.kind === 'comet') { shake(5); FX.haptic(14); } else FX.haptic(6);
-      if (e.via === 'nova') { /* nova draws its own big wave */ }
       // combo milestones
       for (let i = 0; i < MILESTONES.length; i++) {
         const m = MILESTONES[i];
@@ -108,6 +103,12 @@
       comboPrev = combo;
       // pulse the combo HUD
       hud.combo.classList.remove('bump'); void hud.combo.offsetWidth; hud.combo.classList.add('bump');
+    }
+    function onSlam(e) {
+      const x = px(e.x), y = px(e.y), r = px(e.r);
+      parts.ring(x, y, 28, Math.max(34, r * 2.2), 0.35); parts.burst(x, y + 6, { n: 8, hue: 38, speed: 150, size: 3, life: 0.4, grav: 60 });
+      if (e.n > 0) { shake(e.double ? 5 : 4); FX.haptic(10); } else parts.text(x, y, 'whiff', { color: '#9aa4b2', size: 12, life: 0.4 });
+      for (const h of hammers) if (!h.landed && Math.abs(h.x - x) < 1 && Math.abs(h.y - y) < 1) { h.landed = true; h.t = h.wind; h.slam = 0.18; break; }
     }
     function onAbility(k) {
       FX.haptic(25);
@@ -173,12 +174,10 @@
       const k = t.kind;
       if (k === 'gold') return poly(x, y, r * 1.12, 8, time * 0.0008 + t.id, 0.62);
       if (k === 'pod') return poly(x, y, r * 1.05, 6, Math.PI / 6);
-      if (k === 'spore') return poly(x, y, r * 1.15, 10, time * 0.0012, 0.72);
       if (k === 'comet') { const sp = Math.atan2(t.vy, t.vx); ctx.beginPath(); ctx.moveTo(x + Math.cos(sp) * r * 1.3, y + Math.sin(sp) * r * 1.3); ctx.lineTo(x + Math.cos(sp + 2.4) * r * 1.1, y + Math.sin(sp + 2.4) * r * 1.1); ctx.lineTo(x + Math.cos(sp + Math.PI) * r * 0.35, y + Math.sin(sp + Math.PI) * r * 0.35); ctx.lineTo(x + Math.cos(sp - 2.4) * r * 1.1, y + Math.sin(sp - 2.4) * r * 1.1); ctx.closePath(); return; }
       ctx.beginPath(); ctx.arc(x, y, r, 0, TAU);
     }
     function fillFor(t) {
-      if (t.kind === 'spore') return ['#3a1a4a', '#ff3d7f'];
       if (t.kind === 'gold') return ['#ffc13b', '#fff1b5'];
       if (t.kind === 'pod') return ['#2fbf71', '#b8f5c8'];
       if (t.kind === 'orb') return ['#58d4e8', '#e0fbff'];
@@ -194,7 +193,7 @@
       if (t.wob > 0) { sc *= 1 + Math.sin(t.wob * 12) * 0.12 * t.wob; t.wob = Math.max(0, t.wob - 0.05); }
       sc *= 1 + Math.sin(time * 0.006 + t.id) * 0.035;
       r *= sc;
-      const cols = fillFor(t), isSpore = t.kind === 'spore';
+      const cols = fillFor(t);
       ctx.globalAlpha = Math.max(0.2, fade); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
       if (t.kind === 'comet') { // striped trail
         const sp = Math.hypot(t.vx, t.vy) || 1, nx = -t.vx / sp, ny = -t.vy / sp, px_ = -ny, py_ = nx;
@@ -204,17 +203,12 @@
       ctx.save(); ctx.translate(r * 0.16, r * 0.2); shape(t, x, y, r, time); ctx.fillStyle = 'rgba(0,0,0,.5)'; ctx.fill(); ctx.restore();
       shape(t, x, y, r, time); ctx.fillStyle = cols[0]; ctx.fill();
       ctx.save(); shape(t, x, y, r, time); ctx.clip();
-      ctx.fillStyle = cols[1]; ctx.globalAlpha *= isSpore ? 0.0 : 0.9; ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.4, r * 0.55, 0, TAU); ctx.fill(); // flat highlight blob
+      ctx.fillStyle = cols[1]; ctx.globalAlpha *= 0.9; ctx.beginPath(); ctx.arc(x - r * 0.35, y - r * 0.4, r * 0.55, 0, TAU); ctx.fill(); // flat highlight blob
       ctx.restore(); ctx.globalAlpha = Math.max(0.2, fade);
       shape(t, x, y, r, time); ctx.strokeStyle = INK; ctx.lineWidth = Math.max(2.5, r * 0.12); ctx.stroke();
       // faces / details
       ctx.fillStyle = INK; ctx.strokeStyle = INK;
-      if (isSpore) { // angry face
-        ctx.fillStyle = '#ffe8f0'; ctx.beginPath(); ctx.arc(x - r * 0.3, y - r * 0.1, r * 0.2, 0, TAU); ctx.arc(x + r * 0.3, y - r * 0.1, r * 0.2, 0, TAU); ctx.fill();
-        ctx.fillStyle = INK; ctx.beginPath(); ctx.arc(x - r * 0.27, y - r * 0.06, r * 0.09, 0, TAU); ctx.arc(x + r * 0.27, y - r * 0.06, r * 0.09, 0, TAU); ctx.fill();
-        ctx.strokeStyle = '#ffe8f0'; ctx.lineWidth = Math.max(2, r * 0.09); ctx.beginPath(); ctx.moveTo(x - r * 0.5, y - r * 0.38); ctx.lineTo(x - r * 0.12, y - r * 0.24); ctx.moveTo(x + r * 0.5, y - r * 0.38); ctx.lineTo(x + r * 0.12, y - r * 0.24); ctx.stroke();
-        ctx.beginPath(); ctx.moveTo(x - r * 0.3, y + r * 0.42); ctx.lineTo(x - r * 0.1, y + r * 0.3); ctx.lineTo(x + r * 0.1, y + r * 0.42); ctx.lineTo(x + r * 0.3, y + r * 0.3); ctx.stroke();
-      } else if (t.kind === 'gold') {
+      if (t.kind === 'gold') {
         ctx.lineWidth = Math.max(2.5, r * 0.12); ctx.beginPath(); ctx.moveTo(x - r * 0.3, y); ctx.lineTo(x + r * 0.3, y); ctx.moveTo(x, y - r * 0.3); ctx.lineTo(x, y + r * 0.3); ctx.stroke();
       } else if (t.kind === 'orb') {
         ctx.lineWidth = Math.max(2.5, r * 0.11); ctx.beginPath(); ctx.arc(x, y, r * 0.58, 0, TAU); ctx.stroke();
@@ -243,6 +237,28 @@
       }
       for (let i = 0; i < run.targets.length; i++) drawTarget(run.targets[i], time);
     }
+    // auto-Hammer: a flat ink-outlined mallet swings down from the upper right and slams onto the aimed spot
+    function drawHammers(dt) {
+      for (let i = hammers.length - 1; i >= 0; i--) {
+        const h = hammers[i]; h.t += dt;
+        if (h.landed) h.slam -= dt;
+        if ((h.landed && h.slam <= 0) || h.t > h.wind + 0.5) { hammers.splice(i, 1); continue; }
+        const k = Math.min(1, h.t / h.wind), e = k * k * (3 - 2 * k), L = W * 0.2;
+        const ang = -2.2 + e * 1.9 + (h.landed ? Math.sin((1 - h.slam / 0.18) * Math.PI) * -0.12 : 0); // radians of the handle, pivoting at the strike point
+        const fade = h.landed ? Math.max(0, h.slam / 0.18) : Math.min(1, h.t / 0.05);
+        ctx.save(); ctx.globalAlpha = 0.25 + 0.75 * fade; ctx.translate(h.x, h.y); ctx.rotate(ang + (h.dbl ? 0.15 : 0));
+        ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+        // handle then head, drawn so the head sits on the strike point
+        ctx.strokeStyle = INK; ctx.lineWidth = W * 0.026; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L, 0); ctx.stroke();
+        ctx.strokeStyle = '#c98b4a'; ctx.lineWidth = W * 0.015; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(L, 0); ctx.stroke();
+        ctx.fillStyle = h.dbl ? '#ffc13b' : '#d9d2c0'; ctx.strokeStyle = INK; ctx.lineWidth = Math.max(3, W * 0.012);
+        const hw = W * 0.075, hh = W * 0.05; ctx.beginPath(); ctx.rect(-hw * 0.2, -hh, hw, hh * 2); ctx.fill(); ctx.stroke();
+        ctx.restore();
+        if (h.t < h.wind) { // aim reticle: dashed ring that closes as the swing comes down
+          ctx.globalAlpha = 0.8; ctx.strokeStyle = '#ffc13b'; ctx.lineWidth = 2.5; ctx.setLineDash([5, 4]); ctx.beginPath(); ctx.arc(h.x, h.y, W * 0.05 * (1.5 - 0.5 * e), 0, TAU); ctx.stroke(); ctx.setLineDash([]); ctx.globalAlpha = 1;
+        }
+      }
+    }
     function frame(ts) {
       raf = requestAnimationFrame(frame);
       const dt = Math.min(0.05, Math.max(0.001, (ts - last) / 1000)); last = ts;
@@ -268,7 +284,7 @@
       let sx = 0, sy = 0; if (shakeMag > 0.2) { sx = (rnd() - 0.5) * shakeMag * 2; sy = (rnd() - 0.5) * shakeMag * 2; shakeMag *= Math.pow(0.0006, dt); } else shakeMag = 0;
       ctx.translate(sx, sy);
       drawBg(ts, dt);
-      if (run) drawWorld(ts, dt);
+      if (run) { drawWorld(ts, dt); drawHammers(dt); }
       for (let i = tapRipples.length - 1; i >= 0; i--) { const r = tapRipples[i]; r.l -= dt * 4; if (r.l <= 0) { tapRipples.splice(i, 1); continue; } ctx.strokeStyle = 'rgba(244,234,213,' + r.l * 0.7 + ')'; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(r.x, r.y, 8 + (1 - r.l) * 18, 0, TAU); ctx.stroke(); }
       parts.draw(ctx);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -308,7 +324,7 @@
       resize();
       zoneHue = D.ZONES[zone].hue;
       run = C.createRun(S, zone, Math.random, Hpx / W, true);
-      parts.clear(); tapRipples = []; shakeMag = 0; flash = null; tint = null; shownScore = 0; comboPrev = 0;
+      parts.clear(); tapRipples = []; hammers = []; shakeMag = 0; flash = null; tint = null; shownScore = 0; comboPrev = 0;
       hud.zone.textContent = D.ZONES[zone].icon + ' ' + D.ZONES[zone].name;
       buildAbilities(run.st); hud.pauseOv.hidden = true;
       phase = 'countdown'; count = 3; countShown = -1; last = performance.now();

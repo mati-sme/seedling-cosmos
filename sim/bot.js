@@ -32,7 +32,7 @@ function botRun(S, p, rng) {
     if (run.over) break;
     if (use.chrono && run.left < 5) C.useAbility(run, 'chrono');
     if (run.t > 1.5) {
-      if (use.nova && run.cd.nova <= 0 && run.targets.filter((t) => t.kind !== 'spore').length >= 5) C.useAbility(run, 'nova');
+      if (use.nova && run.cd.nova <= 0 && run.targets.length >= 5) C.useAbility(run, 'nova');
       if (use.golden && run.cd.golden <= 0) C.useAbility(run, 'golden');
       if (use.magnet && run.cd.magnet <= 0 && run.targets.length >= 3) C.useAbility(run, 'magnet');
       if (use.slow && run.cd.slow <= 0 && run.targets.length >= 6) C.useAbility(run, 'slow');
@@ -43,7 +43,7 @@ function botRun(S, p, rng) {
     let best = null, bs = 1e9;
     for (let i = 0; i < run.targets.length; i++) {
       const t = run.targets[i];
-      if (t.age < p.react || t.kind === 'spore') continue;
+      if (t.age < p.react) continue;
       const score = t.life - (t.kind === 'comet' ? 1.5 : 0) - (t.kind === 'orb' ? 1 : 0) - (t.kind === 'gold' ? 0.5 : 0);
       if (score < bs) { bs = score; best = t; }
     }

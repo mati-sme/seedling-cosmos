@@ -18,7 +18,9 @@
     LIFE: 3.0,            // target lifetime (s)
     RADIUS: 0.075,        // target radius (fraction of field width)
     COMBO_STEP: 0.04, COMBO_CAP: 2.5, COMBO_WIN: 1.2, MISS_LOSS: 0.5,
-    SPORE_PEN: 2,         // seconds lost when tapping a spore
+    STEADY_ACC: 0.75,     // accuracy needed for the Steady Hands bonus
+    GRACE: 0.3,           // a tap this soon after an auto-pop/hammer hit on the same spot is never a miss
+    HM_RATE: 0.35, HM_POW: 1, HM_RANGE: 0.04, HM_WIND: 0.14, // auto-Hammer: swings/s, damage, splash radius, wind-up (s)
     CRIT_MUL: 2.5, GOLD_CH: 0.05,
     ORB_TIME: 1.0,
     VAL: { mote: 1, gold: 7, comet: 24, pod: 36, orb: 3 },
@@ -31,13 +33,13 @@
   };
 
   const ZONES = [
-    { name: 'Moss Meadow',        icon: '🌿', hue: 140, spore: 0,    speed: 1.0,  life: 1.0,  blurb: 'Soft glowing moss. Gentle and calm.' },
-    { name: 'Glimmer Grove',      icon: '🌳', hue: 170, spore: 0.05, speed: 1.1,  life: 0.95, blurb: 'Spores drift between the glimmers - avoid the purple ones.' },
-    { name: 'Nebula Reef',        icon: '🪸', hue: 205, spore: 0.08, speed: 1.2,  life: 0.9,  blurb: 'Coral made of gas. Targets dart about.' },
-    { name: 'Void Orchard',       icon: '🍎', hue: 280, spore: 0.11, speed: 1.3,  life: 0.85, blurb: 'Dark fruit hangs in the quiet.' },
-    { name: 'Comet Belt',         icon: '☄️', hue: 25,  spore: 0.13, speed: 1.45, life: 0.8,  blurb: 'Fast, fiery and generous.' },
-    { name: 'Starforge Garden',   icon: '⭐', hue: 330, spore: 0.15, speed: 1.6,  life: 0.76, blurb: 'Blossoms ignite as they ripen.' },
-    { name: 'Heart of the Galaxy', icon: '🌌', hue: 48,  spore: 0.17, speed: 1.8,  life: 0.72, blurb: 'Everything glows. Everything is fast.' }
+    { name: 'Moss Meadow',        icon: '🌿', hue: 140,    speed: 1.0,  life: 1.0,  blurb: 'Soft glowing moss. Gentle and calm.' },
+    { name: 'Glimmer Grove',      icon: '🌳', hue: 170, speed: 1.1,  life: 0.95, blurb: 'Sprouts crowd the glimmers. Targets drift a little faster.' },
+    { name: 'Nebula Reef',        icon: '🪸', hue: 205, speed: 1.2,  life: 0.9,  blurb: 'Coral made of gas. Targets dart about.' },
+    { name: 'Void Orchard',       icon: '🍎', hue: 280, speed: 1.3,  life: 0.85, blurb: 'Dark fruit hangs in the quiet.' },
+    { name: 'Comet Belt',         icon: '☄️', hue: 25,  speed: 1.45, life: 0.8,  blurb: 'Fast, fiery and generous.' },
+    { name: 'Starforge Garden',   icon: '⭐', hue: 330, speed: 1.6,  life: 0.76, blurb: 'Blossoms ignite as they ripen.' },
+    { name: 'Heart of the Galaxy', icon: '🌌', hue: 48,  speed: 1.8,  life: 0.72, blurb: 'Everything glows. Everything is fast.' }
   ];
 
   const ABILITIES = {
@@ -67,11 +69,14 @@
     podC:       { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% star pods' },
     orbC:       { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% time petals' },
     orbT:       { kind: 'add', fmt: (v) => '+' + v + 's per time petal' },
-    sporePen:   { kind: 'add', fmt: (v) => v + 's lost per spore' },
-    sporeShield:{ kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% chance to shrug off a spore' },
-    sporeC:     { kind: 'mul', fmt: (v) => '×' + v + ' spores' },
     auto:       { kind: 'add', fmt: (v) => '+' + v + ' auto-pops / sec' },
-    flawless:   { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% flawless-run bonus' },
+    steady:     { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% bonus when 75%+ of taps land' },
+    hm:         { kind: 'add', fmt: () => 'Unlocks the auto-Hammer' },
+    hmRate:     { kind: 'add', fmt: (v) => '+' + v + ' hammer swings / sec' },
+    hmPow:      { kind: 'add', fmt: (v) => '+' + v + ' hammer damage (pods take several hits)' },
+    hmRange:    { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% hammer splash radius (of field width)' },
+    hmDouble:   { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% chance of a double strike' },
+    hmCrit:     { kind: 'add', fmt: (v) => '+' + Math.round(v * 100) + '% hammer crit chance' },
     abCd:       { kind: 'mul', fmt: (v) => '×' + v + ' ability cooldowns' },
     abPow:      { kind: 'mul', fmt: (v) => '×' + v + ' ability power' },
     novaMul:    { kind: 'mul', fmt: (v) => '×' + v + ' Nova value' },
@@ -83,7 +88,7 @@
 
   // ---------- map layout ----------
   const UNIT = 100;
-  const MAIN_ANGLES = { T: -70, S: -42, C: -14, Y: 14, A: 42, Z: 70 };
+  const MAIN_ANGLES = { T: -70, S: -42, C: -14, Y: 14, A: 42, Z: 70, H: 180 };
   const MEM_ANGLES = { P: -58, Q: 0, R: 58 };
   const CORE_ANGLES = { P: -50, Q: 0, R: 50 };
 
@@ -95,8 +100,10 @@
     ['t1', 'Long Days', '☀️', 'seed', 'T', 1.5, 0, 5, A_('time', 3)],
     ['c1', 'Gentle Rhythm', '🎵', 'seed', 'C', 1.5, 0, 4, A_('comboWin', 0.2)],
     ['y2', 'Fertilizer', '🌼', 'y1', 'Y', 1, 0, 4, A_('goldC', 0.03)],
+    ['h1', 'Tiny Mallet', '🔨', 'seed', 'H', 1.5, 0, 1, A_('hm', 1)],
     ['s1', 'Wide Petals', '🌸', 'seed', 'S', 1.5, 0, 4, M_('hitR', 1.05)],
     ['z1', 'Glimmer Grove', '🌳', 'seed', 'Z', 1.5, 0, 1, ZN(1)],
+    ['h2', 'Quick Swing', '💪', 'h1', 'H', 1, 0, 8, A_('hmRate', 0.12)],
     ['a1', 'Nova Bud', '💥', 'seed', 'A', 1.5, 0, 1, AB('nova')],
     ['t2', 'Morning Dew', '💧', 't1', 'T', 1, 0, 3, A_('time', 3)],
     ['c2', 'Pollen Chain', '⛓️', 'c1', 'C', 1, 0, 5, A_('comboStep', 0.01)],
@@ -107,24 +114,28 @@
     ['s3', 'Pollen Sprite', '🧚', 's2', 'S', 1, 0, 4, A_('auto', 0.25)],
     ['c3', 'Harmony', '🎶', 'c2', 'C', 1, 0, 5, A_('comboCap', 0.5)],
     ['a2', 'Time Bloom', '🕰️', 'a1', 'A', 1, 0, 1, AB('slow')],
+    ['h3', 'Heavy Head', '⚒️', 'h2', 'H', 1, 0, 6, A_('hmPow', 0.5)],
     ['y4', 'Deep Roots', '🪴', 'y3', 'Y', 1, 0, 5, M_('yield', 1.35)],
     ['t3', 'Hourglass Bloom', '⏳', 't2', 'T', 1, 0, 3, A_('time', 3)],
     ['z3', 'Nebula Reef', '🪸', 'z2', 'Z', 1, 0, 1, ZN(2)],
-    ['s4', 'Spore Spray', '🧴', 's3', 'S', 1, 0, 4, A_('sporePen', -0.5)],
+    ['s4', 'Sturdy Stems', '🌾', 's3', 'S', 1, 0, 4, M_('life', 1.05)],
+    ['h4', 'Wide Swing', '🌀', 'h3', 'H', 1, 0, 5, A_('hmRange', 0.012)],
     ['c4', 'Lucky Petals', '🍀', 'c3', 'C', 1, 0, 5, A_('crit', 0.04)],
     ['a3', 'Quick Roots', '⚡', 'a2', 'A', 1, 0, 5, M_('abCd', 0.94)],
     ['b1', 'Sunlit Bridge', '🌉', ['c3', 'y4'], 'Y', 0, 0, 3, M_('yield', 1.2)],
     ['y5', 'Golden Seeds', '🌻', 'y4', 'Y', 1, 0, 4, A_('goldC', 0.04)],
     ['t6', 'Petal Clock', '🕐', 't4', 'T', 1, 0, 4, A_('orbT', 0.25)],
-    ['s5', 'Dew Shield', '🛡️', 's4', 'S', 1, 0, 4, A_('sporeShield', 0.1)],
-    ['z4', 'Spore Lore', '📖', 'z3', 'Z', 1, 0, 3, M_('sporeC', 0.8)],
+    ['s5', 'Dewdrop Lens', '🔍', 's4', 'S', 1, 0, 4, M_('spawn', 1.04)],
+    ['z4', 'Fertile Fields', '📖', 'z3', 'Z', 1, 0, 3, A_('podC', 0.02)],
     ['c5', 'Bright Blooms', '✨', 'c4', 'C', 1, 0, 5, A_('critMul', 0.5)],
     ['a4', 'Photosynthesis', '🌞', 'a3', 'A', 1, 0, 1, AB('golden')],
+    ['h5', 'Echo Strike', '🔔', 'h4', 'H', 1, 0, 5, A_('hmDouble', 0.08)],
     ['y6', 'Cosmic Loam', '🌋', 'y5', 'Y', 1, 0, 5, M_('yield', 1.4)],
     ['t5', 'Evergreen', '🌲', 't3', 'T', 1, 0, 3, A_('time', 3)],
     ['z5', 'Void Orchard', '🍎', 'z4', 'Z', 1, 0, 1, ZN(3)],
     ['s6', 'Hive Mind', '🐝', 's5', 'S', 1, 0, 4, A_('auto', 0.35)],
     ['a5', 'Potent Pollen', '🧪', 'a4', 'A', 1, 0, 5, M_('abPow', 1.15)],
+    ['h6', 'Sweet Spot', '🎯', 'h5', 'H', 1, 0, 5, A_('hmCrit', 0.06)],
     ['c6', 'Chain Reaction', '🔗', 'c5', 'C', 1, 0, 5, A_('comboStep', 0.01)],
     ['b2', 'Moonlit Bridge', '🌙', ['s5', 'c5'], 'S', 0, 0, 3, M_('collect', 1.1)],
     ['y7', 'Heavy Fruit', '🍐', 'y6', 'Y', 1, 0, 4, A_('podC', 0.03)],
@@ -139,7 +150,7 @@
     ['a7', 'Fast Petals', '💨', 'a6', 'A', 1, 0, 5, M_('abCd', 0.94)],
     ['b3', 'Star Bridge', '🌟', ['y8', 'a6'], 'A', 0, 0, 3, M_('yield', 1.2)],
     ['t8', 'Second Dawn', '🌅', 't7', 'T', 1, 0, 1, AB('chrono')],
-    ['s9', 'Flawless Garden', '💎', 's8', 'S', 1, 0, 5, A_('flawless', 0.1)],
+    ['s9', 'Steady Hands', '💎', 's8', 'S', 1, 0, 5, A_('steady', 0.1)],
     ['z8', 'Starforge Garden', '⭐', 'z7', 'Z', 1, 0, 1, ZN(5)],
     ['y9', 'Stellar Sap', '🍁', 'y8', 'Y', 1, 0, 5, M_('yield', 1.5)],
     ['c8', 'Resonance', '🔔', 'c7', 'C', 1, 0, 4, A_('comboWin', 0.25)],
@@ -183,7 +194,7 @@
     ['m10', 'Deep Dream', '🌙', 'm7', 'Q', 1, 0, 6, M_('yield', 1.5), 60, 1.8],
     ['m11', 'Sprite Memory', '🧚', 'm8', 'P', 1, 0, 4, A_('auto', 0.3), 80, 2.0],
     ['m12', 'Lucky Dreams', '🍀', 'm9', 'R', 1, 0, 5, A_('crit', 0.03), 90, 1.9],
-    ['m13', 'Pure Memory', '💎', 'm10', 'Q', 1, 0, 5, A_('flawless', 0.1), 150, 1.9],
+    ['m13', 'Pure Memory', '💎', 'm10', 'Q', 1, 0, 5, A_('steady', 0.1), 150, 1.9],
     ['m14', 'Ancient Pods', '🥥', 'm11', 'P', 1, 0, 4, A_('podC', 0.02), 220, 2.0],
     ['m15', 'Golden Echo', '🌻', 'm12', 'R', 1, 0, 4, A_('goldC', 0.03), 260, 2.0],
     ['m16', 'Harvest Echo', '🧺', 'm13', 'Q', 1, 0, 5, M_('collect', 1.3), 450, 2.0],
@@ -255,7 +266,7 @@
     return { nodes, byId, edges, kind, labels };
   }
 
-  const MAIN = build(MAIN_ROWS, MAIN_ANGLES, 'main', { T: 'TIME', S: 'SPRITES', C: 'COMBO', Y: 'YIELD', A: 'ABILITIES', Z: 'ZONES' });
+  const MAIN = build(MAIN_ROWS, MAIN_ANGLES, 'main', { T: 'TIME', S: 'SPRITES', C: 'COMBO', Y: 'YIELD', A: 'ABILITIES', Z: 'ZONES', H: 'HAMMER' });
   const MEM = build(MEM_ROWS, MEM_ANGLES, 'mem', { P: 'HEAD START', Q: 'POWER', R: 'HARVEST' });
   const CORE = build(CORE_ROWS, CORE_ANGLES, 'core', { P: 'DAWN', Q: 'RADIANCE', R: 'GENESIS' });
 
@@ -277,7 +288,6 @@
       if (f.s === 'ab') return 'Unlocks active ability: ' + ABILITIES[f.k].name + '. ' + ABILITIES[f.k].desc;
       if (f.s === 'zone') return 'Unlocks zone: ' + ZONES[f.z].name + ' (×' + fmtMul(BAL.ZONE_MUL[f.z]) + ' base yield).';
       const v = f.m !== undefined ? f.m : f.a;
-      if (f.s === 'sporePen') return 'Spores cost ' + Math.abs(v) + 's less per level.';
       if (f.s === 'missLoss') return 'Missed taps cost ' + Math.round(Math.abs(v) * 100) + '% less combo per level.';
       return st.fmt(v) + (f.s === 'head' || f.s === 'memKeep' ? ' per level.' : ' per level.');
     }

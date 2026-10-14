@@ -120,11 +120,10 @@
     $('zone-name').textContent = z.name; $('zone-blurb').textContent = z.blurb;
     $('zone-prev').disabled = S.zone <= 0; $('zone-next').disabled = S.zone >= st.maxZone;
     orb.setZone(S.zone, z.hue); stars.setHue(z.hue);
-    const sp = z.spore * st.sporeC;
     $('zone-no').textContent = 'PLATE ' + (S.zone + 1) + ' / ' + (st.maxZone + 1);
     $('run-facts').innerHTML = '<div><span>Run length</span><b>' + Math.round(st.time) + 's</b></div>' +
       '<div><span>Zone yield</span><b>×' + fmt(D.BAL.ZONE_MUL[S.zone]) + '</b></div>' +
-      '<div><span>Spore rate</span><b>' + (S.zone > 0 ? Math.round(sp * 100) + '%' : 'none') + '</b></div>' +
+      '<div><span>Hammer</span><b>' + (st.hmOn ? st.hmRate.toFixed(2).replace(/0$/, '') + '/s' : 'locked') + '</b></div>' +
       '<div><span>Combo cap</span><b>×' + st.comboCap.toFixed(1) + '</b></div>';
     $('home-abilities').innerHTML = ['nova', 'slow', 'golden', 'magnet', 'chrono'].map((k) => '<span class="' + (st.ab[k] ? '' : 'locked') + '" title="' + esc(D.ABILITIES[k].name) + '">' + (st.ab[k] ? D.ABILITIES[k].icon : '+') + '</span>').join('');
     const next = cheapest('main'), ng = $('next-goal');
@@ -159,8 +158,8 @@
     $('sum-best').textContent = best && S.runs > 0 ? 'NEW BEST' : '';
     const rows = [['Harvested in ' + D.ZONES[sum.zone].name, fmt(sum.raw)]];
     if (sum.collectMul > 1.0001) rows.push(['Collection bonus', '×' + sum.collectMul.toFixed(2)]);
-    if (sum.flawless > 0) rows.push(['Flawless run (no spores hit)', '+' + Math.round(sum.flawless * 100) + '%']);
-    else if (sum.sporeHits > 0) rows.push(['Spores popped', String(sum.sporeHits)]);
+    if (sum.steady > 0) rows.push(['Steady hands (75%+ accuracy)', '+' + Math.round(sum.steady * 100) + '%']);
+    if (sum.hammerHits > 0) rows.push(['Hammer pops', String(sum.hammerHits)]);
     if (sum.crits > 0) rows.push(['Critical hits', String(sum.crits)]);
     $('sum-rows').innerHTML = rows.map((r, i) => '<div class="r" style="animation-delay:' + (0.15 + i * 0.12) + 's"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>').join('');
     $('sum-stats').innerHTML = '<div><b>' + sum.hits + '</b><small>pops</small></div><div><b>' + sum.maxCombo + '</b><small>best combo</small></div><div><b>' + Math.round(sum.accuracy * 100) + '%</b><small>accuracy</small></div>';
@@ -208,7 +207,6 @@
   function nowText(n, kind) {
     const f = n.fx, l = C.level(S, kind, n.id), st = D.STATS[f.s]; if (!l || !st || f.s === 'ab' || f.s === 'zone') return '';
     const stt = C.stats(S);
-    if (f.s === 'sporePen') return 'Now: spores cost ' + stt.sporePen.toFixed(1).replace(/\.0$/, '') + 's';
     if (f.s === 'missLoss') return 'Now: a miss costs ' + Math.round(stt.missLoss * 100) + '% of your combo';
     const tot = f.m !== undefined ? +Math.pow(f.m, l).toFixed(2) : +(f.a * l).toFixed(2);
     return 'This node now: ' + st.fmt(tot);

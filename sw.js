@@ -1,6 +1,6 @@
 /* Seedling Cosmos service worker: cache-first, relative paths (hosted under /seedling-cosmos/). */
 'use strict';
-const CACHE = 'seedling-cosmos-v4';
+const CACHE = 'seedling-cosmos-v5';
 const ASSETS = [
   './', 'index.html', 'style.css', 'manifest.webmanifest',
   'js/costs.js', 'js/data.js', 'js/core.js', 'js/fx.js', 'js/map.js', 'js/game.js', 'js/ui.js',

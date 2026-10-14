@@ -3,7 +3,7 @@
  * Walks the Garden map in its intended purchase order (sorted by `idx + (level-1) * LV`), measures what a reasonable bot
  * earns per run in that exact state, and sets cost = income x "runs to afford" (a schedule that grows over the map).
  * Early upgrades cost 1-2 runs of income, easing down to about one run each, so purchases keep flowing all the way through.
- * Writes js/costs.js. Usage: node tools/calibrate.js [--r0=1.5] [--r1=0.9] [--decay=25] [--lv=2.5] [--runs=6] [--dry]
+ * Writes js/costs.js. Usage: node tools/calibrate.js [--r0=1.5] [--r1=0.7] [--decay=25] [--lv=2.5] [--runs=6] [--dry]
  */
 'use strict';
 const fs = require('fs');
@@ -14,7 +14,7 @@ const { rngFrom, BASE_PLAYER_DEFAULTS, botRun } = require('../sim/bot.js');
 
 const args = {};
 process.argv.slice(2).forEach((a) => { const m = /^--([^=]+)(?:=(.*))?$/.exec(a); if (m) args[m[1]] = m[2] === undefined ? true : m[2]; });
-const R0 = +args.r0 || 1.5, R1 = +args.r1 || 0.9, J = +args.decay || 25, LV = +args.lv || 2.5, K = +args.runs || 6;
+const R0 = +args.r0 || 1.5, R1 = +args.r1 || 0.7, J = +args.decay || 25, LV = +args.lv || 2.5, K = +args.runs || 6;
 
 // intended purchase sequence
 const seq = [];
@@ -42,6 +42,7 @@ seq.forEach((step, j) => {
   S.nodes[step.n.id] = step.level;
 });
 console.log(first.join('\n'));
+console.log('Hammer ladder (stardust per level):\n' + D.MAIN.nodes.filter((n) => /^h\d$/.test(n.id)).map((n) => '  ' + n.id + ' ' + n.name + ': ' + costs[n.id].map((c) => C.fmt(c)).join(' ')).join('\n'));
 console.log('final income/run ' + C.fmt(C.stats(S).yield) + ' (yield stat); steps ' + seq.length);
 
 const lines = D.MAIN.nodes.map((n) => '  ' + n.id + ': [' + costs[n.id].map((c) => (c >= 1e6 ? c.toExponential(1).replace('e+', 'e') : c)).join(', ') + ']');

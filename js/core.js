@@ -65,8 +65,13 @@
     st.critMul = B.CRIT_MUL + acc.critMul;
     st.goldC = B.GOLD_CH + acc.goldC;
     st.orbT = B.ORB_TIME + acc.orbT;
-    st.sporePen = Math.max(0, B.SPORE_PEN + acc.sporePen);
-    st.sporeShield = Math.min(0.9, acc.sporeShield);
+    // auto-Hammer: inactive until its unlock node is bought
+    st.hmOn = acc.hm > 0;
+    st.hmRate = st.hmOn ? B.HM_RATE + acc.hmRate : 0;
+    st.hmPow = B.HM_POW + acc.hmPow;
+    st.hmRange = B.HM_RANGE + acc.hmRange;
+    st.hmDouble = Math.min(0.75, acc.hmDouble);
+    st.hmCrit = Math.min(0.75, acc.hmCrit);
     st.crit = Math.min(0.75, acc.crit);
     st.abCd = Math.max(0.15, acc.abCd);
     st.head = acc.head;
@@ -150,8 +155,8 @@
     const st = C.stats(S), z = D.ZONES[zoneIdx];
     const run = {
       st, zone: zoneIdx, zc: z, zmul: B.ZONE_MUL[zoneIdx], rng, H: H || 1.45, emit: !!emit, ev: [],
-      t: 0, dur: st.time, left: st.time, over: false, targets: [], nid: 1, spawnAcc: 0.6, autoAcc: 0,
-      combo: 0, comboT: 0, maxCombo: 0, bonusT: 0, earned: 0, hits: 0, misses: 0, sporeHits: 0, pops: 0, crits: 0,
+      t: 0, dur: st.time, left: st.time, over: false, targets: [], nid: 1, spawnAcc: 0.6, autoAcc: 0, hmAcc: 0.5, swings: [], recent: [],
+      combo: 0, comboT: 0, maxCombo: 0, bonusT: 0, earned: 0, hits: 0, misses: 0, pops: 0, crits: 0, hammerHits: 0, autoHits: 0,
       fx: { slow: 0, golden: 0, magnet: 0 }, cd: {}, used: {}
     };
     Object.keys(st.ab).forEach((k) => { run.cd[k] = 0; });
@@ -163,14 +168,11 @@
   function spawn(run) {
     const st = run.st, z = run.zc, rng = run.rng, H = run.H;
     let kind = 'mote';
-    if (run.zone > 0 && rng() < z.spore * st.sporeC) kind = 'spore';
-    else {
-      const q = rng();
-      if (q < st.cometC) kind = 'comet';
-      else if (q < st.cometC + st.podC) kind = 'pod';
-      else if (q < st.cometC + st.podC + st.orbC) kind = 'orb';
-      else if (run.fx.golden > 0 || rng() < st.goldC) kind = 'gold';
-    }
+    const q = rng();
+    if (q < st.cometC) kind = 'comet';
+    else if (q < st.cometC + st.podC) kind = 'pod';
+    else if (q < st.cometC + st.podC + st.orbC) kind = 'orb';
+    else if (run.fx.golden > 0 || rng() < st.goldC) kind = 'gold';
     const spd = z.speed * (0.05 + rng() * 0.09), a = rng() * 6.283;
     const t = { id: run.nid++, kind, r: B.RADIUS, x: 0.12 + rng() * 0.76, y: 0.12 + rng() * (H - 0.24), vx: Math.cos(a) * spd, vy: Math.sin(a) * spd, age: 0, life: B.LIFE * st.life * z.life, hp: 1 };
     if (kind === 'comet') {
@@ -178,40 +180,44 @@
       t.x = dir > 0 ? -0.05 : 1.05; t.y = 0.15 + rng() * (H - 0.3); t.vx = dir * 0.42 * z.speed; t.vy = (rng() - 0.5) * 0.1;
       t.life = 3.4; t.r = B.RADIUS * 1.05;
     } else if (kind === 'pod') { t.r = B.RADIUS * 1.55; t.hp = 4; t.vx *= 0.5; t.vy *= 0.5; t.life *= 1.5; }
-    else if (kind === 'spore') { t.life = Math.max(t.life, 3.2); t.r = B.RADIUS * 0.95; }
     else if (kind === 'orb') { t.r = B.RADIUS * 0.9; t.life *= 0.8; }
     t.max = t.life; t.hp0 = t.hp;
     run.targets.push(t);
     ev(run, { type: 'spawn', t });
   }
 
-  function collect(run, t, via) {
+  // THE hit path. Every way of popping a target - tap, hammer, sprite auto-pop, gravity well, nova - goes through here,
+  // so combo, combo timer, crits and score are identical whatever the source. `via` only tags the event for the juice.
+  // dmg lets multi-hit pods take more than one point of damage per hit.
+  function hit(run, t, dmg, via) {
     const st = run.st;
-    const mult = via === 'auto' ? 1 : C.comboMult(run);
+    if (run.targets.indexOf(t) < 0) return false;
+    const left = t.hp - dmg;
+    if (left > 0.001) {
+      t.hp = left; run.combo += 1; run.comboT = st.comboWin; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
+      run.hits++; run.pops++; if (via === 'hammer') run.hammerHits++; else if (via !== 'tap') run.autoHits++;
+      ev(run, { type: 'podhit', x: t.x, y: t.y, hp: t.hp, combo: run.combo, via });
+      return true;
+    }
+    const mult = C.comboMult(run);
     let crit = false;
-    if (via === 'tap' && run.rng() < st.crit) { crit = true; run.crits++; }
+    const cc = st.crit + (via === 'hammer' ? st.hmCrit : 0);
+    if (via !== 'nova' && cc > 0 && run.rng() < Math.min(0.9, cc)) { crit = true; run.crits++; }
     let val = B.VAL[t.kind] * B.VAL_MUL * run.zmul * st.yield * mult * (crit ? st.critMul : 1);
     let addT = 0;
     if (t.kind === 'orb') { addT = Math.min(st.orbT, Math.max(0, run.dur * 0.3 - run.bonusT)); run.bonusT += addT; run.left += addT; }
     if (via === 'nova') val *= st.novaMul;
-    if (via === 'auto') val *= 0.6;
     run.earned += val; run.hits++; run.pops++;
-    if (via !== 'auto') {
-      run.combo += t.kind === 'pod' ? 3 : t.kind === 'gold' || t.kind === 'comet' ? 2 : 1;
-      run.comboT = st.comboWin;
-      if (run.combo > run.maxCombo) run.maxCombo = run.combo;
-    }
+    if (via === 'hammer') run.hammerHits++; else if (via !== 'tap') run.autoHits++;
+    run.combo += t.kind === 'pod' ? 3 : t.kind === 'gold' || t.kind === 'comet' ? 2 : 1;
+    run.comboT = st.comboWin;
+    if (run.combo > run.maxCombo) run.maxCombo = run.combo;
     const i = run.targets.indexOf(t); if (i >= 0) run.targets.splice(i, 1);
+    if (via !== 'tap') run.recent.push({ x: t.x, y: t.y, r: t.r, ttl: B.GRACE });
     ev(run, { type: 'hit', x: t.x, y: t.y, val, crit, kind: t.kind, combo: run.combo, via, mult, orbT: addT });
+    return true;
   }
-
-  function sporeHit(run, t) {
-    const i = run.targets.indexOf(t); if (i >= 0) run.targets.splice(i, 1);
-    if (run.rng() < run.st.sporeShield) { ev(run, { type: 'shield', x: t.x, y: t.y }); return; }
-    run.sporeHits++; run.combo = 0;
-    run.left = Math.max(0.01, run.left - run.st.sporePen);
-    ev(run, { type: 'spore', x: t.x, y: t.y, pen: run.st.sporePen });
-  }
+  C.hit = hit;
 
   // Tap at field coordinates (x in 0..1, y in 0..H). Returns the target touched or null.
   C.tapRun = function (run, x, y) {
@@ -223,21 +229,41 @@
       if (d < slop && d < bd) { bd = d; best = t; }
     }
     if (!best) {
+      // fairness: a tap on a target that an auto-pop / hammer beat you to a split second ago is not a miss
+      for (let i = 0; i < run.recent.length; i++) {
+        const g = run.recent[i];
+        if (Math.hypot(g.x - x, g.y - y) - g.r * rm < slop) { ev(run, { type: 'late', x, y }); return null; }
+      }
       run.misses++;
       const lost = Math.floor(run.combo * st.missLoss);
       if (lost > 0) run.combo -= lost;
       ev(run, { type: 'miss', x, y, lost });
       return null;
     }
-    if (best.kind === 'spore') { sporeHit(run, best); return best; }
-    if (best.hp > 1) {
-      best.hp--; run.combo += 1; run.comboT = st.comboWin; if (run.combo > run.maxCombo) run.maxCombo = run.combo;
-      ev(run, { type: 'podhit', x: best.x, y: best.y, hp: best.hp, combo: run.combo });
-      return best;
-    }
-    collect(run, best, 'tap');
+    hit(run, best, 1, 'tap');
     return best;
   };
+
+  // ---------- auto-Hammer ----------
+  // A swing aims at a target's predicted spot and lands HM_WIND seconds later on whatever is there. Nothing is claimed
+  // while it is in the air, so a manual tap can still pop that target first (the swing then just lands on empty ground).
+  function swing(run, x, y, double) {
+    run.swings.push({ x, y, t: B.HM_WIND, double: !!double });
+    ev(run, { type: 'swing', x, y, wind: B.HM_WIND, double: !!double });
+  }
+  function land(run, sw) {
+    const st = run.st, rr = st.hmRange;
+    const hits = run.targets.filter((t) => Math.hypot(t.x - sw.x, t.y - sw.y) <= rr + t.r * 0.9);
+    ev(run, { type: 'slam', x: sw.x, y: sw.y, r: rr, n: hits.length, double: sw.double });
+    hits.forEach((t) => hit(run, t, st.hmPow, 'hammer'));
+    if (!sw.double && run.rng() < st.hmDouble) swing(run, sw.x, sw.y, true);
+  }
+  function hammerAim(run) {
+    const pool = run.targets.filter((t) => t.age > 0.15);
+    if (!pool.length) return;
+    const t = pool[Math.floor(run.rng() * pool.length)];
+    swing(run, t.x + t.vx * B.HM_WIND, t.y + t.vy * B.HM_WIND, false);
+  }
 
   C.abilityReady = (run, k) => !!run.st.ab[k] && run.cd[k] <= 0 && !run.over && !(k === 'chrono' && run.used.chrono);
   C.useAbility = function (run, k) {
@@ -245,9 +271,7 @@
     const st = run.st, A = D.ABILITIES[k];
     run.cd[k] = Math.max(3, A.cd * st.abCd);
     if (k === 'nova') {
-      run.targets.slice().forEach((t) => {
-        if (t.kind === 'spore') run.targets.splice(run.targets.indexOf(t), 1); else collect(run, t, 'nova');
-      });
+      run.targets.slice().forEach((t) => { hit(run, t, 99, 'nova'); });
     } else if (k === 'chrono') { run.used.chrono = true; run.left += A.time * st.abPow; }
     else run.fx[k] = A.dur * st.abPow;
     ev(run, { type: 'ability', k });
@@ -267,10 +291,10 @@
     for (let i = run.targets.length - 1; i >= 0; i--) {
       const t = run.targets[i];
       t.age += dt; t.life -= dt * (fx.slow > 0 ? 0.6 : 1);
-      if (fx.magnet > 0 && t.kind !== 'spore' && t.kind !== 'comet') {
-        const dx = 0.5 - t.x, dy = H / 2 - t.y, d = Math.hypot(dx, dy) || 1;
-        t.x += dx / d * 0.28 * dt; t.y += dy / d * 0.28 * dt;
-        if (d < 0.13) { collect(run, t, 'auto'); continue; }
+      if (fx.magnet > 0 && t.kind !== 'comet') {
+        const dx = 0.5 - t.x, dy = H / 2 - t.y, d = Math.hypot(dx, dy), n = d || 1;
+        t.x += dx / n * 0.2 * dt; t.y += dy / n * 0.2 * dt;
+        if (d < 0.1) { hit(run, t, 99, 'magnet'); continue; }
       }
       t.x += t.vx * dt * sp; t.y += t.vy * dt * sp;
       if (t.kind !== 'comet') {
@@ -286,10 +310,18 @@
       run.autoAcc += st.auto * dt;
       while (run.autoAcc >= 1) {
         run.autoAcc -= 1;
-        const pool = run.targets.filter((t) => t.kind !== 'spore' && t.hp <= 1);
-        if (pool.length) collect(run, pool[Math.floor(rng() * pool.length)], 'auto');
+        if (run.targets.length) hit(run, run.targets[Math.floor(rng() * run.targets.length)], 1, 'sprite');
       }
     }
+    if (st.hmRate > 0) {
+      run.hmAcc += st.hmRate * dt;
+      while (run.hmAcc >= 1) { run.hmAcc -= 1; hammerAim(run); }
+    }
+    for (let i = run.swings.length - 1; i >= 0; i--) {
+      const sw = run.swings[i]; sw.t -= dt;
+      if (sw.t <= 0) { run.swings.splice(i, 1); land(run, sw); }
+    }
+    for (let i = run.recent.length - 1; i >= 0; i--) { run.recent[i].ttl -= dt; if (run.recent[i].ttl <= 0) run.recent.splice(i, 1); }
     if (run.combo > 0) {
       run.comboT -= dt;
       if (run.comboT <= 0) { if (run.combo >= 10) ev(run, { type: 'combolost', combo: run.combo }); run.combo = 0; }
@@ -299,11 +331,12 @@
   // Totals at the end of a run. Stardust stays "pending" until the player collects it on the summary screen.
   C.finishRun = function (run) {
     const st = run.st;
-    const flawless = run.sporeHits === 0 ? st.flawless : 0;
+    const acc = run.hits / Math.max(1, run.hits + run.misses);
+    const steady = run.hits >= 5 && acc >= B.STEADY_ACC ? st.steady : 0;
     return {
-      zone: run.zone, raw: run.earned, collectMul: st.collect, flawless, total: Math.max(1, Math.round(run.earned * st.collect * (1 + flawless))),
-      hits: run.hits, misses: run.misses, maxCombo: run.maxCombo, sporeHits: run.sporeHits, crits: run.crits,
-      duration: run.dur, accuracy: run.hits / Math.max(1, run.hits + run.misses)
+      zone: run.zone, raw: run.earned, collectMul: st.collect, steady, total: Math.max(1, Math.round(run.earned * st.collect * (1 + steady))),
+      hits: run.hits, misses: run.misses, maxCombo: run.maxCombo, crits: run.crits, hammerHits: run.hammerHits, autoHits: run.autoHits,
+      duration: run.dur, accuracy: acc
     };
   };
   C.endRun = function (S, run) { S.pending = C.finishRun(run); return S.pending; };
