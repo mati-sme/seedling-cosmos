@@ -2,8 +2,8 @@
 /* Seedling Cosmos - cost calibrator.
  * Walks the Garden map in its intended purchase order (sorted by `idx + (level-1) * LV`), measures what a reasonable bot
  * earns per run in that exact state, and sets cost = income x "runs to afford" (a schedule that grows over the map).
- * That keeps progress visible all the way through: early upgrades cost a fraction of one run, late ones a few runs.
- * Writes js/costs.js. Usage: node tools/calibrate.js [--r0=0.3] [--r1=2.2] [--gamma=1.6] [--lv=2.5] [--runs=6] [--dry]
+ * Early upgrades cost 1-2 runs of income, easing down to about one run each, so purchases keep flowing all the way through.
+ * Writes js/costs.js. Usage: node tools/calibrate.js [--r0=1.5] [--r1=0.9] [--decay=25] [--lv=2.5] [--runs=6] [--dry]
  */
 'use strict';
 const fs = require('fs');
@@ -14,7 +14,7 @@ const { rngFrom, BASE_PLAYER_DEFAULTS, botRun } = require('../sim/bot.js');
 
 const args = {};
 process.argv.slice(2).forEach((a) => { const m = /^--([^=]+)(?:=(.*))?$/.exec(a); if (m) args[m[1]] = m[2] === undefined ? true : m[2]; });
-const R0 = +args.r0 || 0.3, R1 = +args.r1 || 2.2, GAMMA = +args.gamma || 1.6, LV = +args.lv || 2.5, K = +args.runs || 6;
+const R0 = +args.r0 || 1.5, R1 = +args.r1 || 0.9, J = +args.decay || 25, LV = +args.lv || 2.5, K = +args.runs || 6;
 
 // intended purchase sequence
 const seq = [];
@@ -30,14 +30,13 @@ seq.forEach((step, j) => {
   let income = 0;
   for (let i = 0; i < K; i++) income += botRun(S, BASE_PLAYER_DEFAULTS, rng).total;
   income /= K; S.pending = null;
-  const p = j / (seq.length - 1);
-  const r = R0 + (R1 - R0) * Math.pow(p, GAMMA);
+  const r = R1 + (R0 - R1) * Math.exp(-j / J); // opening upgrades cost 1-2 runs, then ease to R1 runs per upgrade
   let cost = income * r;
   const row = costs[step.n.id] || (costs[step.n.id] = []);
   if (step.level > 1) cost = Math.max(cost, row[step.level - 2] * 1.2);
   // round to 2 significant digits so the table stays readable
   const mag = Math.pow(10, Math.max(0, Math.floor(Math.log10(cost)) - 1));
-  cost = Math.max(5, Math.round(cost / mag) * mag);
+  cost = Math.max(2, Math.round(cost / mag) * mag);
   row[step.level - 1] = cost;
   if (j < 8 || j % 40 === 0) first.push('#' + j + ' ' + step.n.id + ' L' + step.level + ' income/run=' + C.fmt(income) + ' cost=' + C.fmt(cost) + ' (r=' + r.toFixed(2) + ')');
   S.nodes[step.n.id] = step.level;

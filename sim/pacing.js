@@ -138,6 +138,7 @@ function report(main, profiles) {
   L.push('- Sustained tap rate ' + p.tapsPerSec + '/s, ' + Math.round(p.precision * 100) + '% of taps land, ' + p.react + 's reaction time, ' + Math.round(p.abilityUse * 100) + '% ability usage, ~' + p.overhead + 's of menus per run, never taps spores');
   L.push('- Spends greedily (cheapest affordable upgrade first). Prestige at most once per ~17h (Rebloom) / 2 days (Supernova). Rebloom when the Seed gain is >= max(6, Seeds already earned this Supernova era), i.e. it would at least double them, or after 1.2 days without a purchase; Supernova when the gain is >= max(2, owned Cores), or after 4 days without a purchase. No more Supernovas once the Constellation is complete.', '');
 
+  L.push('Tuning: base run ' + D.BAL.BASE_TIME + 's, target values x' + D.BAL.VAL_MUL + ' (first run pays single digits), calibrated costs start at ~1.5 runs of income and ease to ~0.7 (`node tools/calibrate.js --r0=1.5 --r1=0.7`), REB_REQ ' + D.BAL.REB_REQ + '.', '');
   L.push('## Headline', '');
   L.push('| Metric | Value | Target |', '|---|---|---|');
   L.push('| Full completion (all 3 maps maxed) | **' + (main.complete ? dh(main.complete) + ' (' + (main.complete / 86400 / 7).toFixed(1) + ' weeks)' : 'not reached in ' + DAYS + ' days') + '** | 3-6 weeks |');

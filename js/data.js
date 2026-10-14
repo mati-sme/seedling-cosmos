@@ -8,7 +8,8 @@
   const COSTS = root.SC_COSTS || (typeof require === 'function' ? require('./costs.js') : {});
 
   const BAL = {
-    BASE_TIME: 30,        // seconds per run before upgrades (30..90 with everything)
+    BASE_TIME: 10,        // seconds per run before upgrades (10..90 with everything)
+    VAL_MUL: 0.25,         // global scale on target values: the opening run pays only a few Stardust
     C0: 18,               // cost of main-map node #0
     G: 1.215,             // main-map cost growth per node order index
     CM: 1.5,              // default cost growth per level of one node
@@ -22,7 +23,7 @@
     ORB_TIME: 1.0,
     VAL: { mote: 1, gold: 7, comet: 24, pod: 36, orb: 3 },
     ZONE_MUL: [1, 9, 85, 900, 1.1e4, 1.6e5, 3e6],
-    REB_REQ: 5e7,         // cycle Stardust needed for the first Seed
+    REB_REQ: 5e6,         // cycle Stardust needed for the first Seed
     REB_K: 2, REB_EXP: 2, // Seeds = K * (1 + log10(cycle / REQ)) ^ EXP * multipliers
     NOVA_REQ: 30, NOVA_K: 130, NOVA_EXP: 0.5, // Supernova needs NOVA_REQ Seeds this era; Cores = K * (Seeds/REQ) ^ EXP
     HEAD_STEP: 3,         // main nodes pre-bought per level of "head start"
@@ -91,13 +92,13 @@
   const A_ = (s, a) => ({ s, a }), M_ = (s, m) => ({ s, m }), AB = (k) => ({ s: 'ab', k }), ZN = (z) => ({ s: 'zone', z });
   const MAIN_ROWS = [
     ['y1', 'Rich Soil', '🌱', 'seed', 'Y', 1.5, 0, 5, M_('yield', 1.25)],
-    ['t1', 'Long Days', '☀️', 'seed', 'T', 1.5, 0, 5, A_('time', 2)],
+    ['t1', 'Long Days', '☀️', 'seed', 'T', 1.5, 0, 5, A_('time', 3)],
     ['c1', 'Gentle Rhythm', '🎵', 'seed', 'C', 1.5, 0, 4, A_('comboWin', 0.2)],
     ['y2', 'Fertilizer', '🌼', 'y1', 'Y', 1, 0, 4, A_('goldC', 0.03)],
     ['s1', 'Wide Petals', '🌸', 'seed', 'S', 1.5, 0, 4, M_('hitR', 1.05)],
     ['z1', 'Glimmer Grove', '🌳', 'seed', 'Z', 1.5, 0, 1, ZN(1)],
     ['a1', 'Nova Bud', '💥', 'seed', 'A', 1.5, 0, 1, AB('nova')],
-    ['t2', 'Morning Dew', '💧', 't1', 'T', 1, 0, 3, A_('time', 2)],
+    ['t2', 'Morning Dew', '💧', 't1', 'T', 1, 0, 3, A_('time', 3)],
     ['c2', 'Pollen Chain', '⛓️', 'c1', 'C', 1, 0, 5, A_('comboStep', 0.01)],
     ['s2', 'Forgiving Moss', '🧶', 's1', 'S', 1, 0, 4, A_('missLoss', -0.1)],
     ['y3', 'Star Compost', '🍂', 'y2', 'Y', 1, 0, 5, M_('yield', 1.3)],
@@ -107,7 +108,7 @@
     ['c3', 'Harmony', '🎶', 'c2', 'C', 1, 0, 5, A_('comboCap', 0.5)],
     ['a2', 'Time Bloom', '🕰️', 'a1', 'A', 1, 0, 1, AB('slow')],
     ['y4', 'Deep Roots', '🪴', 'y3', 'Y', 1, 0, 5, M_('yield', 1.35)],
-    ['t3', 'Hourglass Bloom', '⏳', 't2', 'T', 1, 0, 3, A_('time', 2)],
+    ['t3', 'Hourglass Bloom', '⏳', 't2', 'T', 1, 0, 3, A_('time', 3)],
     ['z3', 'Nebula Reef', '🪸', 'z2', 'Z', 1, 0, 1, ZN(2)],
     ['s4', 'Spore Spray', '🧴', 's3', 'S', 1, 0, 4, A_('sporePen', -0.5)],
     ['c4', 'Lucky Petals', '🍀', 'c3', 'C', 1, 0, 5, A_('crit', 0.04)],
@@ -120,7 +121,7 @@
     ['c5', 'Bright Blooms', '✨', 'c4', 'C', 1, 0, 5, A_('critMul', 0.5)],
     ['a4', 'Photosynthesis', '🌞', 'a3', 'A', 1, 0, 1, AB('golden')],
     ['y6', 'Cosmic Loam', '🌋', 'y5', 'Y', 1, 0, 5, M_('yield', 1.4)],
-    ['t5', 'Evergreen', '🌲', 't3', 'T', 1, 0, 3, A_('time', 2)],
+    ['t5', 'Evergreen', '🌲', 't3', 'T', 1, 0, 3, A_('time', 3)],
     ['z5', 'Void Orchard', '🍎', 'z4', 'Z', 1, 0, 1, ZN(3)],
     ['s6', 'Hive Mind', '🐝', 's5', 'S', 1, 0, 4, A_('auto', 0.35)],
     ['a5', 'Potent Pollen', '🧪', 'a4', 'A', 1, 0, 5, M_('abPow', 1.15)],
@@ -130,7 +131,7 @@
     ['z6', 'Comet Gardens', '🌠', 'z5', 'Z', 1, 0, 4, A_('cometC', 0.02)],
     ['s7', 'Magnet Petals', '🧿', 's6', 'S', 1, 0, 3, M_('hitR', 1.06)],
     ['a6', 'Gravity Well', '🧲', 'a5', 'A', 1, 0, 1, AB('magnet')],
-    ['t7', 'Eternal Spring', '🌷', 't5', 'T', 1, 0, 3, A_('time', 3)],
+    ['t7', 'Eternal Spring', '🌷', 't5', 'T', 1, 0, 3, A_('time', 4)],
     ['y8', 'Nebula Nectar', '🍯', 'y7', 'Y', 1, 0, 5, M_('yield', 1.5)],
     ['c7', 'Crescendo', '📈', 'c6', 'C', 1, 0, 5, A_('comboCap', 1)],
     ['z7', 'Comet Belt', '☄️', 'z6', 'Z', 1, 0, 1, ZN(4)],
@@ -145,7 +146,7 @@
     ['a8', 'Overgrowth', '🌿', 'a7', 'A', 1, 0, 4, M_('abPow', 1.2)],
     ['s10', 'Harvest Basket', '🧺', 's9', 'S', 1, 0, 5, M_('collect', 1.15)],
     ['z9', 'Cosmic Tides', '🌊', 'z8', 'Z', 1, 0, 4, M_('spawn', 1.1)],
-    ['t9', 'Time Lattice', '🕸️', 't8', 'T', 1, 0, 2, A_('time', 3)],
+    ['t9', 'Time Lattice', '🕸️', 't8', 'T', 1, 0, 2, A_('time', 4)],
     ['c9', 'Starburst', '🎆', 'c8', 'C', 1, 0, 4, A_('crit', 0.04)],
     ['y10', 'Giant Pods', '🥥', 'y9', 'Y', 1, 0, 3, A_('podC', 0.03)],
     ['a9', 'Radiant Nova', '☀️', 'a8', 'A', 1, 0, 3, M_('novaMul', 1.5)],
@@ -156,7 +157,7 @@
     ['c10', 'Supernova Pulse', '🌟', 'c9', 'C', 1, 0, 4, A_('critMul', 1)],
     ['a10', 'Starlit Canopy', '🎑', 'a9', 'A', 1, 0, 4, M_('abCd', 0.94)],
     ['z11', 'Bountiful Skies', '🌤️', 'z10', 'Z', 1, 0, 4, M_('spawn', 1.1)],
-    ['t10', 'Timeless Garden', '♾️', 't9', 'T', 1, 0, 2, A_('time', 2)],
+    ['t10', 'Timeless Garden', '♾️', 't9', 'T', 1, 0, 2, A_('time', 3)],
     ['c11', 'Perfect Pitch', '🎼', 'c10', 'C', 1, 0, 4, A_('comboStep', 0.015)],
     ['s12', 'Garden Spirit', '👻', 's11', 'S', 1, 0, 3, A_('auto', 0.5)],
     ['y12', 'Endless Orchard', '🌴', 'y11', 'Y', 1, 0, 5, M_('yield', 1.7)],

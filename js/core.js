@@ -190,7 +190,7 @@
     const mult = via === 'auto' ? 1 : C.comboMult(run);
     let crit = false;
     if (via === 'tap' && run.rng() < st.crit) { crit = true; run.crits++; }
-    let val = B.VAL[t.kind] * run.zmul * st.yield * mult * (crit ? st.critMul : 1);
+    let val = B.VAL[t.kind] * B.VAL_MUL * run.zmul * st.yield * mult * (crit ? st.critMul : 1);
     let addT = 0;
     if (t.kind === 'orb') { addT = Math.min(st.orbT, Math.max(0, run.dur * 0.3 - run.bonusT)); run.bonusT += addT; run.left += addT; }
     if (via === 'nova') val *= st.novaMul;
@@ -301,7 +301,7 @@
     const st = run.st;
     const flawless = run.sporeHits === 0 ? st.flawless : 0;
     return {
-      zone: run.zone, raw: run.earned, collectMul: st.collect, flawless, total: run.earned * st.collect * (1 + flawless),
+      zone: run.zone, raw: run.earned, collectMul: st.collect, flawless, total: Math.max(1, Math.round(run.earned * st.collect * (1 + flawless))),
       hits: run.hits, misses: run.misses, maxCombo: run.maxCombo, sporeHits: run.sporeHits, crits: run.crits,
       duration: run.dur, accuracy: run.hits / Math.max(1, run.hits + run.misses)
     };

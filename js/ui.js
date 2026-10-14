@@ -1,4 +1,4 @@
-/* Seedling Cosmos v2 - UI wiring: tabs, home, upgrade maps, prestige, summary, settings, save/load, PWA registration. */
+/* Seedling Cosmos v4 - UI wiring: tabs, home, upgrade maps, prestige, summary, settings, save/load, PWA registration. */
 (function () {
   'use strict';
   const C = window.SC_CORE, D = window.SC_DATA, FX = window.SC_FX, MAP = window.SC_MAP, GAME = window.SC_GAME;
@@ -7,7 +7,7 @@
   const $ = (id) => document.getElementById(id);
   const fmt = (n) => C.fmt(n, S && S.settings.sci);
   const CURNAME = { main: 'Stardust', mem: 'Seeds', core: 'Star Cores' };
-  const CURICON = { main: '✨', mem: '🌸', core: '🌟' };
+  const CURICON = { main: '✦', mem: '❀', core: '★' };
 
   let S, game, orb, stars, resetting = false, curTab = 'play', presKind = 'mem', sel = null, saveTimer = 0;
   const maps = {};
@@ -55,7 +55,7 @@
   function buildTop() {
     const res = $('res');
     [['main', 'Stardust', 'main'], ['mem', 'Seeds', 'seed'], ['core', 'Cores', 'core']].forEach(([k, label, cls]) => {
-      const d = document.createElement('div'); d.className = 'chip ' + cls; d.innerHTML = '<b>0</b><small>' + label + '</small>'; res.appendChild(d);
+      const d = document.createElement('div'); d.className = 'chip ' + cls; d.innerHTML = '<b>0</b><small>' + label + '</small><i>' + CURICON[k] + '</i>'; res.appendChild(d);
       chips[k] = { el: d, b: d.firstChild, v: -1 };
     });
   }
@@ -121,19 +121,20 @@
     $('zone-prev').disabled = S.zone <= 0; $('zone-next').disabled = S.zone >= st.maxZone;
     orb.setZone(S.zone, z.hue); stars.setHue(z.hue);
     const sp = z.spore * st.sporeC;
-    $('run-facts').innerHTML = '<span class="fact">⏱ <b>' + Math.round(st.time) + 's</b> run</span>' +
-      '<span class="fact">✨ <b>×' + fmt(D.BAL.ZONE_MUL[S.zone]) + '</b> zone yield</span>' +
-      (S.zone > 0 ? '<span class="fact">☠ <b>' + Math.round(sp * 100) + '%</b> spores</span>' : '') +
-      '<span class="fact">🎯 combo up to <b>×' + st.comboCap.toFixed(1) + '</b></span>';
-    $('home-abilities').innerHTML = ['nova', 'slow', 'golden', 'magnet', 'chrono'].map((k) => '<span class="' + (st.ab[k] ? '' : 'locked') + '" title="' + esc(D.ABILITIES[k].name) + '">' + (st.ab[k] ? D.ABILITIES[k].icon : '🔒') + '</span>').join('');
+    $('zone-no').textContent = 'PLATE ' + (S.zone + 1) + ' / ' + (st.maxZone + 1);
+    $('run-facts').innerHTML = '<div><span>Run length</span><b>' + Math.round(st.time) + 's</b></div>' +
+      '<div><span>Zone yield</span><b>×' + fmt(D.BAL.ZONE_MUL[S.zone]) + '</b></div>' +
+      '<div><span>Spore rate</span><b>' + (S.zone > 0 ? Math.round(sp * 100) + '%' : 'none') + '</b></div>' +
+      '<div><span>Combo cap</span><b>×' + st.comboCap.toFixed(1) + '</b></div>';
+    $('home-abilities').innerHTML = ['nova', 'slow', 'golden', 'magnet', 'chrono'].map((k) => '<span class="' + (st.ab[k] ? '' : 'locked') + '" title="' + esc(D.ABILITIES[k].name) + '">' + (st.ab[k] ? D.ABILITIES[k].icon : '+') + '</span>').join('');
     const next = cheapest('main'), ng = $('next-goal');
     if (next) {
       const c = C.nodeCost(S, 'main', next), pct = Math.min(100, S.stardust / c * 100);
-      ng.innerHTML = 'Next upgrade: <b>' + next.icon + ' ' + esc(next.name) + '</b> · ' + fmt(c) + ' ✨<div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div>';
-    } else ng.innerHTML = C.counts(S, 'main').maxed === D.MAIN.nodes.length ? '🌟 The Garden is fully grown! Rebloom for more.' : '';
+      ng.innerHTML = '<span class="lbl">Next upgrade</span><b>' + next.icon + ' ' + esc(next.name) + '</b><em>' + fmt(c) + ' ✦</em><div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div>';
+    } else ng.innerHTML = C.counts(S, 'main').maxed === D.MAIN.nodes.length ? 'The Garden is fully grown! Rebloom for more.' : '';
     let hint = '';
     if (S.runs === 0) hint = 'Tap glowing seeds before they fade. Chain hits for bigger combos!';
-    else if (next && S.stardust >= C.nodeCost(S, 'main', next)) hint = 'You can afford an upgrade - open the Garden 🗺️';
+    else if (next && S.stardust >= C.nodeCost(S, 'main', next)) hint = 'You can afford an upgrade - open the Garden tab';
     $('home-hint').textContent = hint;
   }
   function startRun() {
@@ -155,12 +156,12 @@
   function showSummary(sum) {
     const best = sum.total > S.bestRun;
     $('summary').hidden = false;
-    $('sum-best').textContent = best && S.runs > 0 ? '★ NEW BEST RUN ★' : '';
-    const rows = [['🌿 Harvested in ' + D.ZONES[sum.zone].name, fmt(sum.raw)]];
-    if (sum.collectMul > 1.0001) rows.push(['🧺 Collection bonus', '×' + sum.collectMul.toFixed(2)]);
-    if (sum.flawless > 0) rows.push(['💎 Flawless run (no spores hit)', '+' + Math.round(sum.flawless * 100) + '%']);
-    else if (sum.sporeHits > 0) rows.push(['☠ Spores popped', String(sum.sporeHits)]);
-    if (sum.crits > 0) rows.push(['💥 Critical hits', String(sum.crits)]);
+    $('sum-best').textContent = best && S.runs > 0 ? 'NEW BEST' : '';
+    const rows = [['Harvested in ' + D.ZONES[sum.zone].name, fmt(sum.raw)]];
+    if (sum.collectMul > 1.0001) rows.push(['Collection bonus', '×' + sum.collectMul.toFixed(2)]);
+    if (sum.flawless > 0) rows.push(['Flawless run (no spores hit)', '+' + Math.round(sum.flawless * 100) + '%']);
+    else if (sum.sporeHits > 0) rows.push(['Spores popped', String(sum.sporeHits)]);
+    if (sum.crits > 0) rows.push(['Critical hits', String(sum.crits)]);
     $('sum-rows').innerHTML = rows.map((r, i) => '<div class="r" style="animation-delay:' + (0.15 + i * 0.12) + 's"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>').join('');
     $('sum-stats').innerHTML = '<div><b>' + sum.hits + '</b><small>pops</small></div><div><b>' + sum.maxCombo + '</b><small>best combo</small></div><div><b>' + Math.round(sum.accuracy * 100) + '%</b><small>accuracy</small></div>';
     // what the haul buys
@@ -184,6 +185,7 @@
   // ---------- upgrade maps ----------
   function makeMap(kind, host) {
     maps[kind] = MAP.create(host, {
+      kind,
       map: D.MAPS[kind],
       level: (n) => C.level(S, kind, n.id),
       state: (n) => C.nodeState(S, kind, n),
@@ -226,7 +228,7 @@
     $('sh-desc').textContent = D.describe(n);
     $('sh-now').textContent = st === 'locked' ? 'Grow any connected node first: ' + n.parents.map((p) => D.MAPS[kind].byId[p].name).join(' or ') : nowText(n, kind);
     if (st === 'maxed') { buy.className = 'btn big off'; buy.disabled = true; buy.textContent = 'Maxed ✓'; }
-    else if (st === 'locked') { buy.className = 'btn big off'; buy.disabled = true; buy.textContent = '🔒 Locked'; }
+    else if (st === 'locked') { buy.className = 'btn big off'; buy.disabled = true; buy.textContent = 'Locked'; }
     else {
       const c = C.nodeCost(S, kind, n), ok = S[C.CUR[kind]] >= c;
       buy.disabled = false; buy.className = 'btn big ' + (ok ? 'good' : 'off');
@@ -261,16 +263,16 @@
   function renderPres() {
     document.querySelectorAll('#pres-seg button').forEach((b) => { b.classList.toggle('on', b.dataset.p === presKind); });
     const novaBtn = document.querySelector('#pres-seg button[data-p="core"]');
-    const revealed = C.novaRevealed(S); novaBtn.disabled = !revealed; novaBtn.textContent = revealed ? '🌟 Supernova' : '🔒 Supernova';
+    const revealed = C.novaRevealed(S); novaBtn.disabled = !revealed; novaBtn.textContent = revealed ? 'Supernova' : '🔒 Supernova';
     const card = $('pres-card');
     if (presKind === 'mem') {
       const g = C.rebloomGain(S), req = D.BAL.REB_REQ;
       const pct = g > 0 ? 100 : Math.min(100, Math.log10(S.cycleEarned + 1) / Math.log10(req) * 100);
-      card.innerHTML = '<div class="pc-info">Seeds of Memory <b>' + fmt(S.seeds) + '</b><br>' + (g > 0 ? 'Rebloom now for <b>+' + fmt(g) + '</b> Seeds' : 'Earn <b>' + fmt(req) + '</b> Stardust in one cycle to Rebloom') + '<div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div><small>This cycle: ' + fmt(S.cycleEarned) + ' ✨</small></div><button class="btn ' + (g > 0 ? 'glow' : 'off') + '" id="btn-prestige">🌸 Rebloom</button>';
+      card.innerHTML = '<div class="pc-info">Seeds of Memory <b>' + fmt(S.seeds) + '</b><br>' + (g > 0 ? 'Rebloom now for <b>+' + fmt(g) + '</b> Seeds' : 'Earn <b>' + fmt(req) + '</b> Stardust in one cycle to Rebloom') + '<div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div><small>This cycle: ' + fmt(S.cycleEarned) + ' ✦</small></div><button class="btn ' + (g > 0 ? 'glow' : 'off') + '" id="btn-prestige">Rebloom</button>';
     } else {
       const g = C.novaGain(S), req = D.BAL.NOVA_REQ;
       const pct = g > 0 ? 100 : Math.min(100, S.seedsEra / req * 100);
-      card.innerHTML = '<div class="pc-info">Star Cores <b>' + fmt(S.cores) + '</b><br>' + (g > 0 ? 'Supernova now for <b>+' + fmt(g) + '</b> Cores' : 'Gather <b>' + fmt(req) + '</b> Seeds this era to Supernova') + '<div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div><small>Seeds this era: ' + fmt(S.seedsEra) + ' 🌸</small></div><button class="btn ' + (g > 0 ? 'glow' : 'off') + '" id="btn-prestige">🌟 Supernova</button>';
+      card.innerHTML = '<div class="pc-info">Star Cores <b>' + fmt(S.cores) + '</b><br>' + (g > 0 ? 'Supernova now for <b>+' + fmt(g) + '</b> Cores' : 'Gather <b>' + fmt(req) + '</b> Seeds this era to Supernova') + '<div class="bar"><i style="width:' + pct.toFixed(0) + '%"></i></div><small>Seeds this era: ' + fmt(S.seedsEra) + ' ❀</small></div><button class="btn ' + (g > 0 ? 'glow' : 'off') + '" id="btn-prestige">Supernova</button>';
     }
     $('btn-prestige').addEventListener('click', () => confirmPrestige(presKind));
   }
@@ -298,7 +300,7 @@
   // ---------- more tab ----------
   function renderMore() {
     const rows = [
-      ['Runs played', S.runs], ['Total pops', S.totalHits], ['Best run', fmt(S.bestRun) + ' ✨'], ['Best combo', S.bestCombo],
+      ['Runs played', S.runs], ['Total pops', S.totalHits], ['Best run', fmt(S.bestRun) + ' ✦'], ['Best combo', S.bestCombo],
       ['Time in runs', C.fmtTime(S.playSeconds)], ['Stardust earned (all-time)', fmt(S.lifetime)],
       ['Reblooms', S.reblooms], ['Supernovas', S.novas]
     ];

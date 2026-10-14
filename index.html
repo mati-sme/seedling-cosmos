@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
-<meta name="theme-color" content="#0a0720">
+<meta name="theme-color" content="#0e1c1a">
 <meta name="description" content="Seedling Cosmos - tap, chain and bloom your way through timed runs, then grow a cosmic garden on a giant upgrade map.">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -18,37 +18,47 @@
 <canvas id="stars" aria-hidden="true"></canvas>
 
 <div id="app">
-  <header id="top"><div id="res" aria-live="off"></div></header>
+  <header id="top">
+    <div class="brand" aria-hidden="true">
+      <svg viewBox="0 0 40 40" width="34" height="34"><circle cx="20" cy="20" r="17" fill="#ffc13b" stroke="#12211f" stroke-width="3"/><path d="M20 31V19" stroke="#12211f" stroke-width="3" stroke-linecap="round"/><path d="M20 21c-1-5-5-7-9-6 0 5 3 8 9 6zM20 18c1-5 5-7 9-6 0 5-3 8-9 6z" fill="#3ed6a0" stroke="#12211f" stroke-width="2.4" stroke-linejoin="round"/></svg>
+    </div>
+    <div id="res" aria-live="off"></div>
+  </header>
+
+  <nav id="nav" aria-label="Sections">
+    <button data-tab="play" class="on"><svg viewBox="0 0 24 24"><path d="M12 21V11M12 13C12 8 8 6 4 7c0 5 3 7 8 6zM12 11c0-4 3-6 8-6 0 5-3 7-8 6z"/></svg><span>Play</span><u></u></button>
+    <button data-tab="garden"><svg viewBox="0 0 24 24"><path d="M12 3l7 4v8l-7 4-7-4V7z"/><path d="M12 3v8M5 7l7 4 7-4" opacity=".6"/></svg><span>Garden</span><u></u></button>
+    <button data-tab="prestige"><svg viewBox="0 0 24 24"><path d="M12 2l2.4 6.2L21 9l-5 4.2L17.5 20 12 16.4 6.5 20 8 13.2 3 9l6.6-.8z"/></svg><span>Prestige</span><u></u></button>
+    <button data-tab="more"><svg viewBox="0 0 24 24"><path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3zM9 8h6M9 12h6"/></svg><span>Almanac</span><u></u></button>
+  </nav>
 
   <main id="main">
     <!-- Play -->
     <section id="tab-play" class="tab active">
-      <div class="zone-card">
-        <button id="zone-prev" class="zbtn" aria-label="Previous zone">‹</button>
-        <div class="zone-mid">
-          <canvas id="orb" width="300" height="300" aria-hidden="true"></canvas>
-          <div id="zone-name" class="zone-name">Moss Meadow</div>
-          <div id="zone-blurb" class="zone-desc"></div>
-        </div>
-        <button id="zone-next" class="zbtn" aria-label="Next zone">›</button>
+      <div class="plate">
+        <button id="zone-prev" class="zbtn" aria-label="Previous zone">&#8249;</button>
+        <canvas id="orb" width="300" height="300" aria-hidden="true"></canvas>
+        <button id="zone-next" class="zbtn" aria-label="Next zone">&#8250;</button>
+        <div class="plate-cap"><span id="zone-no" class="plate-no">PLATE 1</span><div id="zone-name" class="zone-name">Moss Meadow</div></div>
       </div>
-      <div id="run-facts" class="facts"></div>
-      <div id="home-abilities" class="home-ab"></div>
-      <button id="btn-start" class="btn big glow">▶ Start run</button>
+      <div id="zone-blurb" class="zone-desc"></div>
+      <div id="run-facts" class="spec"></div>
+      <div class="ab-row"><span class="lbl">Abilities</span><div id="home-abilities" class="home-ab"></div></div>
       <div id="next-goal" class="next-goal"></div>
       <div id="home-hint" class="muted center"></div>
+      <div class="startbar"><button id="btn-start" class="btn big go">Start run <i>&#9654;</i></button></div>
     </section>
 
     <!-- Garden (upgrade map) -->
     <section id="tab-garden" class="tab tab-map">
       <div class="map-wrap"><div id="map-main" class="map"></div>
         <div class="map-tools">
-          <button id="btn-grow" class="tool wide" title="Buy the cheapest upgrades you can afford">🌱 Grow all</button>
+          <button id="btn-grow" class="tool wide" title="Buy the cheapest upgrades you can afford">Grow all &#10010;</button>
           <button id="btn-center" class="tool" aria-label="Fit map">Fit</button>
-          <button id="btn-zin" class="tool" aria-label="Zoom in">＋</button>
-          <button id="btn-zout" class="tool" aria-label="Zoom out">－</button>
+          <button id="btn-zin" class="tool" aria-label="Zoom in">+</button>
+          <button id="btn-zout" class="tool" aria-label="Zoom out">&minus;</button>
         </div>
-        <div class="map-hint" id="hint-garden">Drag to pan · pinch to zoom · tap a node</div>
+        <div class="map-hint" id="hint-garden">Drag to pan &middot; pinch to zoom &middot; tap a tile</div>
       </div>
     </section>
 
@@ -56,24 +66,24 @@
     <section id="tab-prestige" class="tab tab-map">
       <div class="pres-top">
         <div class="seg" id="pres-seg">
-          <button data-p="mem" class="on">🌸 Rebloom</button>
-          <button data-p="core">🌟 Supernova</button>
+          <button data-p="mem" class="on">Rebloom</button>
+          <button data-p="core">Supernova</button>
         </div>
         <div id="pres-card" class="pres-card"></div>
       </div>
       <div class="map-wrap"><div id="map-mem" class="map"></div><div id="map-core" class="map" hidden></div>
         <div class="map-tools">
-          <button id="btn-grow-p" class="tool wide" title="Buy the cheapest perks you can afford">🌱 Grow all</button>
+          <button id="btn-grow-p" class="tool wide" title="Buy the cheapest perks you can afford">Grow all &#10010;</button>
           <button id="btn-pcenter" class="tool" aria-label="Fit map">Fit</button>
-          <button id="btn-pzin" class="tool" aria-label="Zoom in">＋</button>
-          <button id="btn-pzout" class="tool" aria-label="Zoom out">－</button>
+          <button id="btn-pzin" class="tool" aria-label="Zoom in">+</button>
+          <button id="btn-pzout" class="tool" aria-label="Zoom out">&minus;</button>
         </div>
       </div>
     </section>
 
     <!-- More -->
     <section id="tab-more" class="tab">
-      <h2>Garden notes</h2>
+      <h2>Field notes</h2>
       <div class="card" id="stats"></div>
       <h2>Settings</h2>
       <div class="card set-card">
@@ -103,21 +113,15 @@
     <button id="sh-buy" class="btn big">Upgrade</button>
   </div>
 
-  <nav id="nav">
-    <button data-tab="play" class="on"><i>🌱</i><span>Play</span></button>
-    <button data-tab="garden"><i>🗺️</i><span>Garden</span><u></u></button>
-    <button data-tab="prestige"><i>🌸</i><span>Prestige</span><u></u></button>
-    <button data-tab="more"><i>⚙️</i><span>More</span></button>
-  </nav>
 </div>
 
 <!-- Run screen -->
 <div id="run">
   <div id="run-hud">
     <div class="hud-top">
-      <button id="run-pause" class="pbtn" aria-label="Pause">⏸</button>
-      <div class="timer"><i id="run-time-fill"></i><span id="run-time-txt">30s</span></div>
-      <div class="score"><b id="run-score">0</b><small id="run-zone"></small></div>
+      <button id="run-pause" class="pbtn" aria-label="Pause"><i></i><i></i></button>
+      <div class="score"><small id="run-zone"></small><b id="run-score">0</b></div>
+      <div id="run-timer" class="timer" aria-label="Time left"><span id="run-time-txt">10</span></div>
     </div>
     <div id="run-combo" class="combo idle"><b id="combo-x">×1.00</b><small id="combo-n">COMBO</small><div class="combo-bar"><i id="combo-fill"></i></div></div>
   </div>
@@ -126,7 +130,7 @@
   <div id="run-abilities"></div>
   <div id="run-pause-ov" hidden>
     <div class="pause-box"><h1>Paused</h1>
-      <button id="run-resume" class="btn big">▶ Resume</button>
+      <button id="run-resume" class="btn big">Resume &#9654;</button>
       <button id="run-quit" class="btn big danger">Abandon run</button>
       <p class="muted center">Abandoning forfeits this run's Stardust.</p></div>
   </div>
@@ -136,15 +140,14 @@
 <div id="summary" hidden>
   <canvas id="sum-fx" aria-hidden="true"></canvas>
   <div class="sum-box">
-    <div class="sum-title">Run complete</div>
-    <div id="sum-best" class="sum-best"></div>
-    <div class="sum-total"><b id="sum-total">0</b><small>Stardust</small></div>
+    <div class="sum-head"><span class="sum-title">Harvest receipt</span><span id="sum-best" class="sum-best"></span></div>
+    <div class="sum-total"><small>Total stardust</small><b id="sum-total">0</b></div>
     <div id="sum-rows" class="sum-rows"></div>
     <div id="sum-stats" class="sum-stats"></div>
     <div id="sum-next" class="sum-next"></div>
     <div class="btns">
-      <button id="sum-run" class="btn">▶ Collect &amp; run again</button>
-      <button id="sum-spend" class="btn good">🗺️ Collect &amp; upgrade</button>
+      <button id="sum-spend" class="btn good">Collect &amp; upgrade</button>
+      <button id="sum-run" class="btn">Collect &amp; run again</button>
     </div>
   </div>
 </div>

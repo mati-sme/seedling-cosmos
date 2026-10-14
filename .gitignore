@@ -1,2 +1,4 @@
 claude.log
 node_modules/
+PROMPT*.md
+claude*.log
