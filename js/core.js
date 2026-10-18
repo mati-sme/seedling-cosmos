@@ -34,7 +34,7 @@
       v: SAVE_VERSION, stardust: 0, cycleEarned: 0, lifetime: 0, seeds: 0, seedsEra: 0, seedsTotal: 0, cores: 0,
       nodes: {}, mem: {}, core: {}, zone: 0, runs: 0, reblooms: 0, novas: 0, bestRun: 0, bestCombo: 0, totalHits: 0,
       pending: null, created: Date.now(), saved: 0, playSeconds: 0,
-      settings: { fx: true, shake: true, sci: false, haptics: true }, seen: {}
+      settings: { fx: true, shake: true, sci: false, haptics: true, adsOffer: true }, seen: {}
     };
   };
   C.level = (S, kind, id) => (id === 'seed' ? 1 : S[FIELD[kind]][id] || 0);

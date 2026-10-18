@@ -157,6 +157,7 @@
     $('summary').hidden = false;
     $('sum-best').textContent = best && S.runs > 0 ? 'NEW BEST' : '';
     const rows = [['Harvested in ' + D.ZONES[sum.zone].name, fmt(sum.raw)]];
+    if (sum.adBonus) rows.push(['🎬 Ad bonus', '×2']);
     if (sum.collectMul > 1.0001) rows.push(['Collection bonus', '×' + sum.collectMul.toFixed(2)]);
     if (sum.steady > 0) rows.push(['Steady hands (75%+ accuracy)', '+' + Math.round(sum.steady * 100) + '%']);
     if (sum.hammerHits > 0) rows.push(['Hammer pops', String(sum.hammerHits)]);
@@ -170,13 +171,51 @@
     // count-up
     const el = $('sum-total'), t0 = performance.now(), dur = 1200;
     (function tick(t) { const k = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - k, 3); el.textContent = fmt(sum.total * e); if (k < 1 && !$('summary').hidden) requestAnimationFrame(tick); else el.textContent = fmt(sum.total); })(t0);
+    renderAdOffer(sum);
     if (!sumFx.parts) { sumFx.parts = FX.Particles(); sumFx.ctx = $('sum-fx').getContext('2d'); }
     sumFx.parts.clear(); sumFx.t = 0; cancelAnimationFrame(sumFx.raf); sumFx.raf = requestAnimationFrame(sumLoop);
     FX.haptic([20, 30, 20]);
   }
+  // ---------- optional reward ad: 2x this run's Stardust ----------
+  // Offered on the receipt (never on the first runs or for tiny runs, see js/ads.js CONFIG). The bonus is written into
+  // S.pending (adBonus) only after the ad was watched to the end, so it is applied once and survives a reload.
+  function adEligible(p) {
+    return !!(p && !p.adBonus && !p.adDeclined && window.Ads &&
+      window.Ads.shouldOffer({ enabled: S.settings.adsOffer !== false, runsBefore: S.runs, reward: p.total, best: S.bestRun }));
+  }
+  function renderAdOffer(p) {
+    const box = $('sum-ad');
+    box.hidden = !adEligible(p);
+    if (box.hidden) return;
+    $('sum-ad-txt').innerHTML = '🎬 Watch a short ad: <b>2× Stardust</b> this run <span class="nw">(+' + fmt(p.total) + ' ✦)</span>';
+    $('sum-ad-yes').disabled = $('sum-ad-no').disabled = false;
+  }
+  function declineAd() {
+    const p = S.pending; if (!p) return;
+    p.adDeclined = true; $('sum-ad').hidden = true; saveSoon();
+  }
+  function watchAd() {
+    const p = S.pending;
+    if (!p || p.adBonus || !window.Ads) return;
+    $('sum-ad-yes').disabled = $('sum-ad-no').disabled = true;
+    window.Ads.showRewarded('seedling-run-end').then((r) => {
+      if (r.rewarded && S.pending === p && !p.adBonus) {
+        p.adBonus = p.total; p.total *= 2; save();
+        $('sum-ad-txt').innerHTML = '🎉 Bonus! Your Stardust is doubled. Thanks!';
+        $('sum-ad').querySelector('.ad-btns').hidden = true;
+        $('sum-total').textContent = fmt(p.total);
+        const rows = $('sum-rows'); rows.insertAdjacentHTML('beforeend', '<div class="r" style="animation-delay:0s"><span>🎬 Ad bonus</span><b>×2</b></div>');
+        FX.haptic([20, 30, 20]);
+      } else if (S.pending === p) {
+        $('sum-ad-txt').innerHTML = '🙂 No bonus this time, and that\'s okay! Try again or skip it.';
+        $('sum-ad-yes').disabled = $('sum-ad-no').disabled = false;
+      }
+    });
+  }
   function collect() {
     const p = C.collectPending(S);
     $('summary').hidden = true; cancelAnimationFrame(sumFx.raf);
+    $('sum-ad').hidden = true; $('sum-ad').querySelector('.ad-btns').hidden = false;
     renderTop(); save(); renderHome(); updateBadges();
     return p;
   }
@@ -306,6 +345,7 @@
     rows.push(['Run length', Math.round(C.stats(S).time) + 's']);
     $('stats').innerHTML = rows.map((r) => '<div class="stats-row"><span>' + r[0] + '</span><b>' + r[1] + '</b></div>').join('');
     $('set-fx').checked = S.settings.fx; $('set-shake').checked = S.settings.shake; $('set-haptics').checked = S.settings.haptics; $('set-sci').checked = S.settings.sci;
+    $('set-adsOffer').checked = S.settings.adsOffer !== false;
   }
   function applySettings() { FX.on = S.settings.fx; FX.shake = S.settings.shake; FX.haptics = S.settings.haptics; }
   function copyText(text) {
@@ -364,7 +404,9 @@
     $('btn-pcenter').addEventListener('click', () => maps[presKind].fit());
     $('btn-pzin').addEventListener('click', () => maps[presKind].zoomBy(1.35)); $('btn-pzout').addEventListener('click', () => maps[presKind].zoomBy(1 / 1.35));
     document.querySelectorAll('#pres-seg button').forEach((b) => b.addEventListener('click', () => setPresKind(b.dataset.p)));
-    ['fx', 'shake', 'haptics', 'sci'].forEach((k) => $('set-' + k).addEventListener('change', (e) => { S.settings[k] = e.target.checked; applySettings(); renderTop(); saveSoon(); }));
+    $('sum-ad-yes').addEventListener('click', watchAd);
+    $('sum-ad-no').addEventListener('click', declineAd);
+    ['fx', 'shake', 'haptics', 'sci', 'adsOffer'].forEach((k) => $('set-' + k).addEventListener('change', (e) => { S.settings[k] = e.target.checked; applySettings(); renderTop(); saveSoon(); }));
     $('btn-save').addEventListener('click', () => { save(); toast('Saved'); });
     $('btn-export').addEventListener('click', exportSave); $('btn-import').addEventListener('click', importSave); $('btn-reset').addEventListener('click', hardReset);
     $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeModal(); });
@@ -383,7 +425,7 @@
       navigator.serviceWorker.register('sw.js').catch(() => { /* offline support is optional */ });
       navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) toast('Update installed - <b>reload</b> for the newest version', 6000); });
     }
-    window.__SC = { get S() { return S; }, game, maps, switchTab, select, save };
+    window.__SC = { get S() { return S; }, game, maps, switchTab, select, save, watchAd };
   }
   init();
 })();

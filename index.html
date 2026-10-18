@@ -91,6 +91,7 @@
         <label class="row"><span>Screen shake</span><input type="checkbox" id="set-shake"></label>
         <label class="row"><span>Vibration</span><input type="checkbox" id="set-haptics"></label>
         <label class="row"><span>Scientific notation</span><input type="checkbox" id="set-sci"></label>
+        <label class="row"><span>Offer reward ads</span><input type="checkbox" id="set-adsOffer"></label>
         <div class="row"><span>Save now</span><button class="btn small" id="btn-save">Save</button></div>
         <div class="row"><span>Export save</span><button class="btn small" id="btn-export">Export</button></div>
         <div class="row"><span>Import save</span><button class="btn small" id="btn-import">Import</button></div>
@@ -100,6 +101,7 @@
       <div class="card howto">
         <p><b>Runs.</b> Each run is a short timed burst. Tap the glowing targets before they fade. Chain hits to build a combo multiplier, unlock the auto-Hammer in the Garden, and use your active abilities. Auto-pops and hammer hits build your combo just like taps, and you can always tap too.</p>
         <p><b>Collect.</b> When time runs out you get a summary. Collect your Stardust and spend it in the <b>Garden</b> map: every node is a permanent upgrade (longer runs, bigger yield, new zones and abilities).</p>
+        <p><b>Bonus ads (optional).</b> After some runs the receipt may offer <b>2× Stardust</b> if you watch a short ad. It's always your choice: "No thanks" is totally fine and costs nothing. You can switch the offer off in Settings.</p>
         <p><b>Rebloom &amp; Supernova.</b> Once the garden is grown, Rebloom for Seeds of Memory and a second map of permanent perks. Much later, Supernova for Star Cores and the Constellation.</p>
       </div>
       <p class="muted center" id="ver">Seedling Cosmos v5.0 &middot; autosaves every 10 seconds</p>
@@ -145,6 +147,10 @@
     <div id="sum-rows" class="sum-rows"></div>
     <div id="sum-stats" class="sum-stats"></div>
     <div id="sum-next" class="sum-next"></div>
+    <div id="sum-ad" class="sum-ad" hidden>
+      <div class="ad-txt" id="sum-ad-txt"></div>
+      <div class="ad-btns"><button id="sum-ad-yes" class="btn">🎬 Watch ad</button><button id="sum-ad-no" class="btn">No thanks</button></div>
+    </div>
     <div class="btns">
       <button id="sum-spend" class="btn good">Collect &amp; upgrade</button>
       <button id="sum-run" class="btn">Collect &amp; run again</button>
@@ -156,6 +162,7 @@
 <div id="toasts" aria-live="polite"></div>
 <div id="modal" hidden><div id="modal-box" role="dialog" aria-modal="true"></div></div>
 
+<script src="js/ads.js"></script>
 <script src="js/costs.js"></script>
 <script src="js/data.js"></script>
 <script src="js/core.js"></script>

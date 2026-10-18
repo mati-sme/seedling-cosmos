@@ -11,7 +11,8 @@
   FX.FONT_N = 'ui-monospace,"SF Mono","Menlo","Consolas","DejaVu Sans Mono",monospace';
 
   FX.haptic = function (ms) {
-    if (FX.haptics && !reduce && root.navigator && navigator.vibrate) { try { navigator.vibrate(ms); } catch (e) { /* ignore */ } }
+    const ua = root.navigator && navigator.userActivation; // Chrome logs an error for vibrate() before the first tap
+    if (FX.haptics && !reduce && root.navigator && navigator.vibrate && (!ua || ua.hasBeenActive)) { try { navigator.vibrate(ms); } catch (e) { /* ignore */ } }
   };
 
   // ---------- page background: halftone dots, plus-sign stars and orbit lines ----------
